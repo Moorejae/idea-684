@@ -28,7 +28,7 @@ When analyzing or refining a user's prompt, adhere strictly to these core resear
 7. THINKING/REASONING CAPABILITIES: Instruct the model to analyze before outputting.
 `;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

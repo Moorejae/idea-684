@@ -61,7 +61,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
       
       User's Rough Prompt:
@@ -197,7 +197,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
@@ -259,7 +259,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
   try {
     // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: [
         { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
@@ -279,7 +279,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
 
     // Now, run a secondary quick call to evaluate why this prompt worked so well!
     const evaluationResponse = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
       
       Prompt:

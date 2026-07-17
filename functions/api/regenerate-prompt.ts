@@ -30,7 +30,7 @@ export async function onRequestPost(context) {
 
     const systemPrompt = `You will synthesize a masterpiece, production-ready, highly optimized prompt. Merge the user's original draft, their precise answers, and the requested style.\n${styleDescription}\nMake the resulting prompt extremely professional, including clear sections, variables, and strict rules.`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

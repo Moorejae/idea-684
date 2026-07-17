@@ -52,7 +52,7 @@ ${rawContext}
 
 Based strictly on your internal knowledge and the user's intent, generate a highly detailed, professional prompt. This is YOUR implementation plan/prompt. Make it structured, insightful, and entirely driven by the knowledge provided above. Do not introduce yourself, just output the prompt.`;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

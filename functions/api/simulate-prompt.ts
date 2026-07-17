@@ -15,7 +15,7 @@ export async function onRequestPost(context) {
     }
 
     // Pass 1: Run the engineered prompt
-    const response1 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const response1 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -30,7 +30,7 @@ export async function onRequestPost(context) {
     const simulatedOutput = data1?.candidates?.[0]?.content?.parts?.[0]?.text || "No output generated.";
 
     // Pass 2: Evaluate the prompt performance
-    const response2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    const response2 = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
