@@ -305,7 +305,55 @@ app.post("/api/simulate-prompt", async (req, res) => {
   }
 });
 
-// 4. Second Brain Query Endpoint
+// 4. Symbiotic Merge Endpoint
+app.post("/api/merge-eyeno", async (req, res) => {
+  if (!checkApiKey(res)) return;
+
+  const { mainPrompt, eyenoPrompt } = req.body;
+  if (!mainPrompt || !eyenoPrompt) {
+    res.status(400).json({ error: "Both mainPrompt and eyenoPrompt are required." });
+    return;
+  }
+
+  try {
+    const systemPrompt = `You are the World's Premier Prompt Architect. 
+Your task is to merge two highly-engineered prompts into ONE ultimate, unified masterpiece prompt.
+
+PROMPT A (The User's Core Intent):
+"""
+${mainPrompt}
+"""
+
+PROMPT B (Eyeno's Support Perspective - derived from internal knowledge):
+"""
+${eyenoPrompt}
+"""
+
+Instructions:
+1. Identify the core goal of Prompt A.
+2. Identify the unique insights, structures, and knowledge embedded in Prompt B.
+3. Seamlessly weave the unique knowledge from B into the structural framework of A.
+4. Output ONLY the final, merged, highly-professional prompt without any introductory or concluding remarks. Make it cohesive.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { text: systemPrompt }
+      ],
+      config: {
+        temperature: 0.5
+      }
+    });
+
+    const mergedPrompt = response.text || "";
+    res.json({ mergedPrompt });
+  } catch (err: any) {
+    console.error("Merge API Error:", err);
+    res.status(500).json({ error: "Failed to merge prompt: " + err.message });
+  }
+});
+
+// 5. Second Brain Query Endpoint
 import fs from "fs";
 app.get("/api/brain-query", (req, res) => {
   const query = (req.query.query as string) || "";
