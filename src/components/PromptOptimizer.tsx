@@ -22,6 +22,8 @@ export default function PromptOptimizer({
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+
+  const API_BASE = import.meta.env.VITE_API_URL || "";
   
   // Q&A answers
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -69,7 +71,7 @@ export default function PromptOptimizer({
     setApiError(null);
 
     try {
-      const res = await fetch("/api/analyze-prompt", {
+      const res = await fetch(`${API_BASE}/api/analyze-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: initialPrompt })
@@ -84,7 +86,7 @@ export default function PromptOptimizer({
       setAnalysis(data);
       
       // Query Second Brain in parallel
-      fetch(`/api/brain-query?query=${encodeURIComponent(initialPrompt)}`)
+      fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(initialPrompt)}`)
         .then(r => r.json())
         .then(d => {
            if(d.idea && !d.idea.includes("No strongly related ideas")) {
@@ -125,7 +127,7 @@ export default function PromptOptimizer({
     }));
 
     try {
-      const res = await fetch("/api/regenerate-prompt", {
+      const res = await fetch(`${API_BASE}/api/regenerate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -162,7 +164,7 @@ export default function PromptOptimizer({
     setApiError(null);
 
     try {
-      const res = await fetch("/api/simulate-prompt", {
+      const res = await fetch(`${API_BASE}/api/simulate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -198,7 +200,7 @@ export default function PromptOptimizer({
     setApiError(null);
 
     try {
-      const res = await fetch("/api/merge-eyeno", {
+      const res = await fetch(`${API_BASE}/api/merge-eyeno`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
