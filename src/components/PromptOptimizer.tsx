@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { 
   Sparkles, Terminal, CheckCircle2, AlertCircle, ArrowRight, Copy, RotateCcw, 
   Play, Check, Loader2, HelpCircle, Award, ListChecks, HelpCircle as QuestionIcon,
-  ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2
+  ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2, BrainCircuit
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, ClarifyingQuestion, SavedPrompt } from "../types";
@@ -39,6 +39,9 @@ export default function PromptOptimizer({
   const [simulatedOutput, setSimulatedOutput] = useState<string>("");
   const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>("");
 
+  // Brain Context
+  const [brainContext, setBrainContext] = useState<string | null>(null);
+
   // UI state
   const [apiError, setApiError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -55,6 +58,7 @@ export default function PromptOptimizer({
     setSimulatedAnalysis("");
     setApiError(null);
     setActiveQuestionIndex(0);
+    setBrainContext(null);
   };
 
   // Step 1: Submit draft for analysis
@@ -78,6 +82,16 @@ export default function PromptOptimizer({
       const data: AnalysisResult = await res.json();
       setAnalysis(data);
       
+      // Query Second Brain in parallel
+      fetch(`/api/brain-query?query=${encodeURIComponent(initialPrompt)}`)
+        .then(r => r.json())
+        .then(d => {
+           if(d.idea && !d.idea.includes("No strongly related ideas")) {
+             setBrainContext(d.idea);
+           }
+        })
+        .catch(e => console.error("Brain query failed:", e));
+
       // Seed initial empty answers
       const initialAnswers: Record<string, string> = {};
       data.clarifyingQuestions.forEach((q) => {
@@ -549,25 +563,34 @@ export default function PromptOptimizer({
           >
             {/* Split layout: Side-by-side comparison */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Original Draft Box */}
-              <div className="lg:col-span-4 bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+              {/* Brain Context Box (Left Pane) */}
+              <div className="lg:col-span-4 bg-emerald-950/20 border border-emerald-500/20 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
                 <div>
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3 mb-4">
-                    <AlertCircle className="w-4.5 h-4.5 text-slate-500" />
-                    <h4 className="font-bold text-slate-300 text-sm">
-                      Original Rough Draft
+                  <div className="flex items-center gap-2 border-b border-emerald-500/20 pb-3 mb-4">
+                    <BrainCircuit className="w-4.5 h-4.5 text-emerald-400" />
+                    <h4 className="font-bold text-emerald-300 text-sm">
+                      Second Brain Context
                     </h4>
                   </div>
-                  <p className="text-xs text-slate-400 leading-relaxed italic whitespace-pre-wrap">
-                    "{initialPrompt}"
-                  </p>
+                  {brainContext ? (
+                    <div className="text-xs text-emerald-200/80 leading-relaxed whitespace-pre-wrap font-mono">
+                      {brainContext}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-emerald-400/50 leading-relaxed italic">
+                      No highly relevant context was found in the Brain Vault for this prompt. 
+                      Gemini optimized this draft using standard knowledge.
+                    </p>
+                  )}
                 </div>
-                <div className="border-t border-white/5 pt-4 mt-6 text-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">Status: Vague & Lacked Structure</span>
+                <div className="border-t border-emerald-500/20 pt-4 mt-6 flex flex-col gap-2">
+                   <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono">Cost-Reduction Cache: Active</span>
+                   <p className="text-[10px] text-emerald-400/60 leading-tight">This context was retrieved locally, saving token burn while injecting your custom knowledge into the engineered prompt.</p>
                 </div>
               </div>
 
-              {/* Refined Masterpiece Box */}
+              {/* Refined Masterpiece Box (Right Pane) */}
               <div className="lg:col-span-8 bg-gradient-to-br from-[#0A0A0C] to-[#121218] border border-white/10 rounded-xl p-6 md:p-8 flex flex-col justify-between relative overflow-hidden">
                 {/* Decorative border highlight */}
                 <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-teal-500 to-indigo-500" />

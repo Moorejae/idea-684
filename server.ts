@@ -61,7 +61,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
       
       User's Rough Prompt:
@@ -125,7 +125,9 @@ app.post("/api/analyze-prompt", async (req, res) => {
       }
     });
 
-    const parsedResult = JSON.parse(response.text || "{}");
+    let jsonText = response.text || "{}";
+    jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsedResult = JSON.parse(jsonText);
     res.json(parsedResult);
   } catch (err: any) {
     console.error("Analysis API Error:", err);
@@ -195,7 +197,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
@@ -232,7 +234,9 @@ app.post("/api/regenerate-prompt", async (req, res) => {
       }
     });
 
-    const parsedResult = JSON.parse(response.text || "{}");
+    let jsonText = response.text || "{}";
+    jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsedResult = JSON.parse(jsonText);
     res.json(parsedResult);
   } catch (err: any) {
     console.error("Regenerate API Error:", err);
@@ -255,7 +259,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
   try {
     // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: [
         { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
@@ -275,7 +279,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
 
     // Now, run a secondary quick call to evaluate why this prompt worked so well!
     const evaluationResponse = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
       
       Prompt:
@@ -298,6 +302,46 @@ app.post("/api/simulate-prompt", async (req, res) => {
   } catch (err: any) {
     console.error("Simulation API Error:", err);
     res.status(500).json({ error: "Failed to simulate prompt: " + err.message });
+  }
+});
+
+// 4. Second Brain Query Endpoint
+import fs from "fs";
+app.get("/api/brain-query", (req, res) => {
+  const query = (req.query.query as string) || "";
+  try {
+    const wikiDir = path.join(process.cwd(), "brain", "wiki");
+    if (!fs.existsSync(wikiDir)) {
+      return res.json({ idea: "No strongly related ideas found in the brain. Feed the brain first!" });
+    }
+    
+    const files = fs.readdirSync(wikiDir).filter(f => f.endsWith(".md"));
+    let bestFile = "";
+    let highestScore = -1;
+    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(wikiDir, file), "utf8");
+      const contentLower = content.toLowerCase();
+      let score = 0;
+      for (const word of queryWords) {
+        if (contentLower.includes(word)) score++;
+      }
+      if (score > highestScore) {
+        highestScore = score;
+        bestFile = file;
+      }
+    }
+
+    if (highestScore > 0 && bestFile) {
+      const content = fs.readFileSync(path.join(wikiDir, bestFile), "utf8");
+      return res.json({ idea: `Extracted Idea from [${bestFile}]:\n\n${content.substring(0, 800)}...` });
+    }
+    
+    return res.json({ idea: "No strongly related ideas found in the brain." });
+  } catch (error) {
+    console.error("Brain Query Error:", error);
+    return res.json({ idea: "No strongly related ideas found in the brain." });
   }
 });
 

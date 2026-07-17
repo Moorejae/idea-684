@@ -1,0 +1,6 @@
+name = "idea-684-prompt-architect"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-03-20"
+
+[vars]
+# API key should be set in Cloudflare dashboard or .dev.vars locally

@@ -3,10 +3,11 @@ import { Sparkles, BookOpen, Save, Trash2, Copy, FileCode, Check, RefreshCw, Ter
 import { motion, AnimatePresence } from "motion/react";
 import PromptOptimizer from "./components/PromptOptimizer";
 import Guidebook from "./components/Guidebook";
+import BrainVault from "./components/BrainVault";
 import { SavedPrompt } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"optimizer" | "guidebook" | "saved">("optimizer");
+  const [activeTab, setActiveTab] = useState<"optimizer" | "guidebook" | "saved" | "brain">("optimizer");
   const [initialPrompt, setInitialPrompt] = useState<string>("");
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -99,6 +100,18 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => setActiveTab("brain")}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all border ${
+                activeTab === "brain"
+                  ? "bg-emerald-600/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
+                  : "text-slate-400 hover:text-white hover:bg-white/5 border-transparent"
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Second Brain</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("saved")}
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all border relative ${
                 activeTab === "saved"
@@ -146,6 +159,18 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               <Guidebook />
+            </motion.div>
+          )}
+
+          {activeTab === "brain" && (
+            <motion.div
+              key="brain"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.2 }}
+            >
+              <BrainVault />
             </motion.div>
           )}
 
