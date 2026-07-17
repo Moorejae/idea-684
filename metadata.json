@@ -1,0 +1,6 @@
+{
+  "name": "AI Prompt Refiner",
+  "description": "An interactive prompt architect that refines your rough ideas into highly effective, structured prompts based on guidelines from Google, Anthropic, and OpenAI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

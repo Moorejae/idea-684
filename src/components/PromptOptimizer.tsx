@@ -1,0 +1,755 @@
+import { useState, useEffect } from "react";
+import { 
+  Sparkles, Terminal, CheckCircle2, AlertCircle, ArrowRight, Copy, RotateCcw, 
+  Play, Check, Loader2, HelpCircle, Award, ListChecks, HelpCircle as QuestionIcon,
+  ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2
+} from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { AnalysisResult, ClarifyingQuestion, SavedPrompt } from "../types";
+import TemplateLibrary from "./TemplateLibrary";
+
+interface PromptOptimizerProps {
+  initialPrompt: string;
+  setInitialPrompt: (prompt: string) => void;
+  onSavePrompt: (prompt: SavedPrompt) => void;
+}
+
+export default function PromptOptimizer({ 
+  initialPrompt, 
+  setInitialPrompt, 
+  onSavePrompt 
+}: PromptOptimizerProps) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  
+  // Q&A answers
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>('standard');
+  const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
+  const [finalResult, setFinalResult] = useState<{
+    refinedPrompt: string;
+    explanation: string;
+    keyAdditions: string[];
+  } | null>(null);
+
+  // Simulation state
+  const [testInput, setTestInput] = useState<string>("");
+  const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  const [simulatedOutput, setSimulatedOutput] = useState<string>("");
+  const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>("");
+
+  // UI state
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
+
+  // Reset helper
+  const handleReset = () => {
+    setStep(1);
+    setAnalysis(null);
+    setAnswers({});
+    setFinalResult(null);
+    setTestInput("");
+    setSimulatedOutput("");
+    setSimulatedAnalysis("");
+    setApiError(null);
+    setActiveQuestionIndex(0);
+  };
+
+  // Step 1: Submit draft for analysis
+  const handleAnalyze = async () => {
+    if (!initialPrompt.trim()) return;
+    setIsAnalyzing(true);
+    setApiError(null);
+
+    try {
+      const res = await fetch("/api/analyze-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: initialPrompt })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to analyze prompt.");
+      }
+
+      const data: AnalysisResult = await res.json();
+      setAnalysis(data);
+      
+      // Seed initial empty answers
+      const initialAnswers: Record<string, string> = {};
+      data.clarifyingQuestions.forEach((q) => {
+        initialAnswers[q.id] = "";
+      });
+      setAnswers(initialAnswers);
+      setStep(2);
+    } catch (err: any) {
+      console.error(err);
+      setApiError(err.message || "Something went wrong.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Step 2: Submit answers and style to synthesize final optimized prompt
+  const handleSynthesize = async () => {
+    setIsRegenerating(true);
+    setApiError(null);
+
+    // Format compiled answers
+    const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => ({
+      questionId: q.id,
+      question: q.question,
+      answer: answers[q.id] || "No input provided"
+    }));
+
+    try {
+      const res = await fetch("/api/regenerate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalPrompt: initialPrompt,
+          answers: compiledAnswers,
+          style: selectedStyle
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to synthesize prompt.");
+      }
+
+      const data = await res.json();
+      setFinalResult(data);
+      setStep(3);
+    } catch (err: any) {
+      console.error(err);
+      setApiError(err.message || "Failed to synthesize final prompt.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  // Step 3: Simulate running the prompt
+  const handleSimulate = async () => {
+    if (!finalResult?.refinedPrompt) return;
+    setIsSimulating(true);
+    setApiError(null);
+
+    try {
+      const res = await fetch("/api/simulate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: finalResult.refinedPrompt,
+          userInput: testInput
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to run simulation.");
+      }
+
+      const data = await res.json();
+      setSimulatedOutput(data.simulatedOutput);
+      setSimulatedAnalysis(data.analysis);
+    } catch (err: any) {
+      console.error(err);
+      setApiError(err.message || "Simulation failed.");
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleSave = () => {
+    if (!finalResult) return;
+    const newSaved: SavedPrompt = {
+      id: crypto.randomUUID(),
+      title: initialPrompt.slice(0, 30) + (initialPrompt.length > 30 ? "..." : ""),
+      original: initialPrompt,
+      refined: finalResult.refinedPrompt,
+      style: selectedStyle,
+      createdAt: new Date().toLocaleDateString()
+    };
+    onSavePrompt(newSaved);
+  };
+
+  // Load starter template directly
+  const handleSelectTemplate = (prompt: string) => {
+    setInitialPrompt(prompt);
+    // Smooth scroll to top of workspace
+    document.getElementById("workspace-entry")?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  return (
+    <div className="flex flex-col gap-8 max-w-7xl mx-auto">
+      {/* Progress timeline */}
+      <div className="bg-[#0D0D10] border border-white/5 p-5 rounded-2xl flex flex-wrap md:flex-nowrap justify-between items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-white/5 rounded-xl border border-white/5">
+            <Settings2 className="w-5 h-5 text-indigo-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Prompt Construction Workspace</h2>
+            <p className="text-xs text-slate-400">Transform raw drafts into robust system prompts.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 md:gap-4 text-xs font-medium text-slate-400">
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${step === 1 ? "bg-indigo-600/15 text-indigo-400 border-indigo-500/20" : "border-transparent"}`}>
+            <span className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-[10px] border border-white/5">1</span>
+            <span>Paste Draft</span>
+          </div>
+          <ChevronRight className="w-3 h-3 text-slate-600 hidden md:block" />
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${step === 2 ? "bg-indigo-600/15 text-indigo-400 border-indigo-500/20" : "border-transparent"}`}>
+            <span className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-[10px] border border-white/5">2</span>
+            <span>Align Details</span>
+          </div>
+          <ChevronRight className="w-3 h-3 text-slate-600 hidden md:block" />
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${step === 3 ? "bg-indigo-600/15 text-indigo-400 border-indigo-500/20" : "border-transparent"}`}>
+            <span className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-[10px] border border-white/5">3</span>
+            <span>Review & Test</span>
+          </div>
+        </div>
+      </div>
+
+      {apiError && (
+        <div className="bg-rose-500/5 border border-rose-500/20 text-rose-400 p-4 rounded-xl flex items-start gap-3 text-sm animate-fade-in">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold">Workspace Warning: </span>
+            {apiError}
+          </div>
+        </div>
+      )}
+
+      {/* Main interactive workflow stages */}
+      <AnimatePresence mode="wait">
+        {step === 1 && (
+          <motion.div
+            key="step1"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="grid grid-cols-1 gap-8"
+          >
+            {/* Upper Editor Workspace */}
+            <div id="workspace-entry" className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6 md:p-8">
+              <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4 mb-5">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-5 h-5 text-indigo-400" />
+                  <h3 className="font-semibold text-white font-sans text-sm md:text-base">
+                    Draft Your Prompt Here
+                  </h3>
+                </div>
+                {initialPrompt && (
+                  <button 
+                    onClick={() => setInitialPrompt("")}
+                    className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear Draft</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={initialPrompt}
+                  onChange={(e) => setInitialPrompt(e.target.value)}
+                  placeholder="Paste or write your raw prompt/idea here... (e.g., 'Make me a task manager component with drag and drop, calendar summaries, and stats.')"
+                  rows={8}
+                  className="w-full bg-white/[0.02] border border-white/10 p-5 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 outline-none transition-all font-mono text-sm leading-relaxed text-indigo-100 placeholder-slate-500"
+                />
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={!initialPrompt.trim() || isAnalyzing}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-55 disabled:cursor-not-allowed group"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Diagnosing & Mapping Gaps...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Extract Gaps & Align Parameters</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Template library helper */}
+            <TemplateLibrary onSelect={handleSelectTemplate} />
+          </motion.div>
+        )}
+
+        {step === 2 && analysis && (
+          <motion.div
+            key="step2"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+          >
+            {/* Left side: diagnostic summary (Strengths, Gaps, Evaluation scores) */}
+            <div className="lg:col-span-5 flex flex-col gap-6">
+              <div className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6">
+                <div className="flex items-center gap-2 border-b border-white/5 pb-3.5 mb-4">
+                  <Award className="w-4.5 h-4.5 text-indigo-400" />
+                  <h4 className="font-bold text-white text-sm">
+                    Prompt Diagnosis Summary
+                  </h4>
+                </div>
+
+                {/* Scorecards */}
+                <div className="space-y-3.5">
+                  {analysis.evaluation.map((evalItem, index) => {
+                    const isExcellent = evalItem.rating === "excellent";
+                    const isGood = evalItem.rating === "good";
+                    return (
+                      <div key={index} className="flex flex-col gap-1 p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-xs text-slate-300">
+                            {evalItem.criteria}
+                          </span>
+                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                            isExcellent 
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                              : isGood 
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                          }`}>
+                            {evalItem.rating.toUpperCase().replace('-', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                          {evalItem.feedback}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Strengths / Gaps bullets */}
+                <div className="mt-6 space-y-4">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2 font-mono">Strengths Detected</span>
+                    <ul className="space-y-1.5">
+                      {analysis.strengths.map((str, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          <span>{str}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2 font-mono">Gaps (Missing Details)</span>
+                    <ul className="space-y-1.5">
+                      {analysis.gaps.map((gap, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+                          <span>{gap}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right side: Interactive alignment interview Q&A */}
+            <div className="lg:col-span-7 flex flex-col gap-6">
+              <div className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6 md:p-8">
+                <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <ListChecks className="w-5 h-5 text-indigo-400" />
+                    <h3 className="font-bold text-white font-sans text-sm md:text-base">
+                      Interactive Detail Alignment
+                    </h3>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 font-mono">
+                    Question {activeQuestionIndex + 1} of {analysis.clarifyingQuestions.length}
+                  </span>
+                </div>
+
+                {/* Question item container with slider */}
+                <div className="min-h-56">
+                  {analysis.clarifyingQuestions.map((q, idx) => {
+                    if (idx !== activeQuestionIndex) return null;
+                    return (
+                      <motion.div
+                        key={q.id}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        className="space-y-5"
+                      >
+                        <div className="bg-indigo-600/5 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
+                          <QuestionIcon className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block font-mono mb-0.5">RATIONALE / WHY IT MATTERS:</span>
+                            <p className="text-xs text-slate-300 leading-relaxed">
+                              {q.context}
+                            </p>
+                          </div>
+                        </div>
+
+                        <h4 className="font-semibold text-white text-base leading-relaxed">
+                          {q.question}
+                        </h4>
+
+                        {/* Pre-baked option suggestion chips */}
+                        {q.options && q.options.length > 0 && (
+                          <div className="flex flex-wrap gap-2.5 pt-1">
+                            {q.options.map((opt, optIdx) => {
+                              const isSelected = answers[q.id] === opt;
+                              return (
+                                <button
+                                  key={optIdx}
+                                  onClick={() => setAnswers({ ...answers, [q.id]: opt })}
+                                  className={`px-3.5 py-2 rounded-xl text-xs font-medium border cursor-pointer transition-all ${
+                                    isSelected
+                                      ? "bg-indigo-600 text-white border-indigo-500/50 shadow-sm"
+                                      : "bg-white/5 border border-white/5 hover:bg-white/10 text-slate-300"
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Manual Custom Answer Input */}
+                        <div className="space-y-1.5 pt-2">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">Custom or Specific Answer</label>
+                          <input
+                            type="text"
+                            value={answers[q.id] || ""}
+                            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                            placeholder="Write your custom detailed answer here..."
+                            className="w-full bg-[#16161D] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all placeholder-slate-500"
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {/* Interview Footer Controls */}
+                <div className="flex items-center justify-between border-t border-white/5 pt-6 mt-6">
+                  <button
+                    onClick={() => setActiveQuestionIndex(Math.max(0, activeQuestionIndex - 1))}
+                    disabled={activeQuestionIndex === 0}
+                    className="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-300 disabled:opacity-40 transition-colors"
+                  >
+                    Back
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    {activeQuestionIndex < analysis.clarifyingQuestions.length - 1 ? (
+                      <button
+                        onClick={() => setActiveQuestionIndex(activeQuestionIndex + 1)}
+                        className="flex items-center gap-1 px-5 py-2.5 bg-white/5 hover:bg-white/10 text-slate-200 font-medium text-xs rounded-xl transition-colors cursor-pointer border border-white/5"
+                      >
+                        <span>Next Question</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <div className="flex flex-col gap-4 w-full">
+                        {/* Prompt Style Selector block before final synthesis */}
+                        <div className="border-t border-white/5 pt-5 mt-2">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-3 font-mono">Choose Output Structure Style</label>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                            {[
+                              { id: "standard", name: "Standard", desc: "Markdown headers" },
+                              { id: "xml", name: "XML Tagged", desc: "Structured boxes" },
+                              { id: "persona", name: "Persona", desc: "Roleplay focus" },
+                              { id: "sequential", name: "CoT Steps", desc: "Stepwise logic" }
+                            ].map((s) => {
+                              const isSelected = selectedStyle === s.id;
+                              return (
+                                <button
+                                  key={s.id}
+                                  onClick={() => setSelectedStyle(s.id as any)}
+                                  className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                                    isSelected
+                                      ? "bg-indigo-600/20 border border-indigo-500/50 text-indigo-300"
+                                      : "bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400"
+                                  }`}
+                                >
+                                  <span className="font-bold text-xs block">{s.name}</span>
+                                  <span className="text-[9px] text-slate-500 block mt-0.5">{s.desc}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleSynthesize}
+                          disabled={isRegenerating}
+                          className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-50"
+                        >
+                          {isRegenerating ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Compiling Masterpiece Prompt...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4 animate-pulse" />
+                              <span>Synthesize Final Engineered Prompt</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reset helper */}
+                <div className="mt-8 text-center">
+                  <button 
+                    onClick={handleReset}
+                    className="text-xs text-slate-500 hover:text-slate-300 underline cursor-pointer"
+                  >
+                    Start Over from Scratch
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 3 && finalResult && (
+          <motion.div
+            key="step3"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="space-y-8 animate-fade-in"
+          >
+            {/* Split layout: Side-by-side comparison */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Original Draft Box */}
+              <div className="lg:col-span-4 bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 border-b border-white/5 pb-3 mb-4">
+                    <AlertCircle className="w-4.5 h-4.5 text-slate-500" />
+                    <h4 className="font-bold text-slate-300 text-sm">
+                      Original Rough Draft
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed italic whitespace-pre-wrap">
+                    "{initialPrompt}"
+                  </p>
+                </div>
+                <div className="border-t border-white/5 pt-4 mt-6 text-center">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">Status: Vague & Lacked Structure</span>
+                </div>
+              </div>
+
+              {/* Refined Masterpiece Box */}
+              <div className="lg:col-span-8 bg-gradient-to-br from-[#0A0A0C] to-[#121218] border border-white/10 rounded-xl p-6 md:p-8 flex flex-col justify-between relative overflow-hidden">
+                {/* Decorative border highlight */}
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-teal-500 to-indigo-500" />
+
+                <div>
+                  <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4 mb-5">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-indigo-400 animate-spin-slow" />
+                      <h4 className="font-bold text-white text-base font-sans">
+                        Engineered Masterpiece Prompt
+                      </h4>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSave}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-xs font-medium text-slate-300 cursor-pointer transition-colors"
+                        title="Save to session checklist"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Save Prompt</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleCopy(finalResult.refinedPrompt, "masterpiece")}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition-colors"
+                      >
+                        {copiedId === "masterpiece" ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Prompt</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Refined Prompt Code area */}
+                  <div className="bg-slate-950 rounded-xl border border-white/5 p-5 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-[420px] overflow-y-auto select-all shadow-inner">
+                    {finalResult.refinedPrompt}
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-4 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping" />
+                    <span className="text-xs font-mono font-bold text-indigo-400">
+                      STYLE: {selectedStyle.toUpperCase()}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleReset}
+                    className="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Refine Another Prompt</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Explanatory improvements */}
+            <div className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6">
+              <h4 className="font-bold text-white text-sm mb-3">
+                Prompt Architect Assessment
+              </h4>
+              <p className="text-xs text-slate-300 leading-relaxed mb-4">
+                {finalResult.explanation}
+              </p>
+
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2.5 font-mono">Key Architectural Upgrades Added</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {finalResult.keyAdditions.map((add, index) => (
+                    <div key={index} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs text-slate-300">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <span>{add}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Prompt testing simulator sandbox (Very important interactive feature) */}
+            <div className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6 md:p-8">
+              <div className="flex items-center gap-2 border-b border-white/5 pb-4 mb-5">
+                <Play className="w-5 h-5 text-indigo-400" />
+                <h3 className="font-bold text-white font-sans text-sm md:text-base">
+                  Interactive Prompt Simulator (Sandbox)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed mb-5 max-w-2xl">
+                Test how your newly optimized prompt behaves! Provide any dummy test case input (for example, if you engineered a fitness planner, type 'Suggest a workout routine for an active runner'). We will run it through Gemini using your engineered rules.
+              </p>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: Input parameters */}
+                <div className="lg:col-span-5 flex flex-col gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">Dummy Test Case Input</label>
+                    <textarea
+                      value={testInput}
+                      onChange={(e) => setTestInput(e.target.value)}
+                      placeholder="Type some mock parameters or sample test input for the AI..."
+                      rows={5}
+                      className="w-full bg-white/[0.02] p-4 border border-white/10 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 text-xs font-mono leading-relaxed text-indigo-100 placeholder-slate-500"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleSimulate}
+                    disabled={isSimulating}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-[#4f46e5]/85 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer transition-all disabled:opacity-55 shadow-[0_4px_12px_rgba(79,70,229,0.2)]"
+                  >
+                    {isSimulating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Simulating Model Run...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        <span>Run Simulation Test</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Right: Output sandbox & Evaluation */}
+                <div className="lg:col-span-7 flex flex-col gap-4">
+                  {simulatedOutput ? (
+                    <div className="space-y-4">
+                      {/* Response Box */}
+                      <div className="bg-slate-950 border border-white/5 rounded-xl p-5 font-sans">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2 mb-3">
+                          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono">Simulated Model Response</span>
+                          <button
+                            onClick={() => handleCopy(simulatedOutput, "simulation")}
+                            className="text-slate-500 hover:text-slate-300 p-1"
+                          >
+                            {copiedId === "simulation" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                        <div className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto">
+                          {simulatedOutput}
+                        </div>
+                      </div>
+
+                      {/* Evaluation critique box */}
+                      {simulatedAnalysis && (
+                        <div className="bg-emerald-500/5 border border-emerald-500/20 p-4.5 rounded-xl">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <ShieldCheck className="w-4.5 h-4.5 text-emerald-400" />
+                            <span className="font-bold text-[10px] uppercase text-emerald-400 font-mono">Expert Validation Checklist</span>
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {simulatedAnalysis}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full border border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center p-6 text-center text-slate-500">
+                      <Terminal className="w-8 h-8 opacity-40 mb-2 text-indigo-400" />
+                      <span className="text-xs font-semibold text-slate-400">Ready for Test Simulation</span>
+                      <p className="text-[10px] max-w-xs mt-1 leading-relaxed text-slate-500">
+                        Enter a test input and run the sandbox simulation to see the prompt's instructions enforced in action.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
