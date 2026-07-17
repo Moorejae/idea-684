@@ -101,7 +101,11 @@ export default function PromptOptimizer({
       setStep(2);
     } catch (err: any) {
       console.error(err);
-      setApiError(err.message || "Something went wrong.");
+      if (err.message?.includes("Unexpected end of JSON input") || err.message?.includes("Unexpected token <")) {
+        setApiError("Server Not Connecting");
+      } else {
+        setApiError(err.message || "Something went wrong.");
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -140,7 +144,11 @@ export default function PromptOptimizer({
       setStep(3);
     } catch (err: any) {
       console.error(err);
-      setApiError(err.message || "Failed to synthesize final prompt.");
+      if (err.message?.includes("Unexpected end of JSON input") || err.message?.includes("Unexpected token <")) {
+        setApiError("Server Not Connecting");
+      } else {
+        setApiError(err.message || "Failed to synthesize final prompt.");
+      }
     } finally {
       setIsRegenerating(false);
     }
@@ -172,7 +180,11 @@ export default function PromptOptimizer({
       setSimulatedAnalysis(data.analysis);
     } catch (err: any) {
       console.error(err);
-      setApiError(err.message || "Simulation failed.");
+      if (err.message?.includes("Unexpected end of JSON input") || err.message?.includes("Unexpected token <")) {
+        setApiError("Server Not Connecting");
+      } else {
+        setApiError(err.message || "Simulation failed.");
+      }
     } finally {
       setIsSimulating(false);
     }
