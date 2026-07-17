@@ -24,7 +24,7 @@ async function appendToWiki(topic: string, newInsights: string) {
         const existingContent = fs.readFileSync(filePath, 'utf8');
         // Synthesize existing and new insights
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             contents: `You are a knowledge synthesis engine. 
 Existing knowledge:
 ${existingContent}
@@ -57,7 +57,7 @@ async function ingestImage(filePath: string, fileName: string) {
         };
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             contents: [
                 imagePart,
                 "Analyze this image. If it's a UI build or mockup, describe its structural components, layout, and intent in detail. If it's a diagram, extract its concepts. Output a structured markdown description."
@@ -80,7 +80,7 @@ async function ingestText(filePath: string, fileName: string) {
     
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             contents: `Analyze the following raw data and extract the core concepts, entities, and architectural insights.
 Return a JSON array of objects with 'topic' and 'insights' properties.
 Data: ${content.substring(0, 15000)}`

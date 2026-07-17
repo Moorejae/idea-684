@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 const WIKI_DIR = path.join(process.cwd(), "brain", "wiki");
-const OUT_FILE = path.join(process.cwd(), "functions", "api", "brain-data.json");
+const OUT_FILE = path.join(process.cwd(), "functions", "api", "brain-data.ts");
 
 let data = [];
 if (fs.existsSync(WIKI_DIR)) {
@@ -12,5 +12,5 @@ if (fs.existsSync(WIKI_DIR)) {
     data.push({ file, content });
   }
 }
-fs.writeFileSync(OUT_FILE, JSON.stringify(data, null, 2));
-console.log("[Build] Brain data compiled to brain-data.json");
+fs.writeFileSync(OUT_FILE, `export default ${JSON.stringify(data, null, 2)};`);
+console.log("[Build] Brain data compiled to brain-data.ts");
