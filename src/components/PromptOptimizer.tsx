@@ -39,8 +39,9 @@ export default function PromptOptimizer({
   const [simulatedOutput, setSimulatedOutput] = useState<string>("");
   const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>("");
 
-  // Brain Context
+  // Brain Context (Eyeno)
   const [brainContext, setBrainContext] = useState<string | null>(null);
+  const [isMerging, setIsMerging] = useState<boolean>(false);
 
   // UI state
   const [apiError, setApiError] = useState<string | null>(null);
@@ -187,6 +188,41 @@ export default function PromptOptimizer({
       }
     } finally {
       setIsSimulating(false);
+    }
+  };
+
+  // Step 3.5: Merge Eyeno Perspective
+  const handleMerge = async () => {
+    if (!finalResult?.refinedPrompt || !brainContext) return;
+    setIsMerging(true);
+    setApiError(null);
+
+    try {
+      const res = await fetch("/api/merge-eyeno", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mainPrompt: finalResult.refinedPrompt,
+          eyenoPrompt: brainContext
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to merge with Eyeno.");
+      }
+
+      const data = await res.json();
+      setFinalResult({
+        ...finalResult,
+        refinedPrompt: data.mergedPrompt,
+        explanation: "Merged Eyeno's knowledge seamlessly into the masterpiece framework.",
+        keyAdditions: [...finalResult.keyAdditions, "Eyeno Insights Integrated"]
+      });
+      setBrainContext("Eyeno's perspective has been successfully fused into the Main Masterpiece Prompt!");
+    } catch (err: any) {
+      setApiError("Server Not Connecting (Merge Failed)");
+    } finally {
+      setIsMerging(false);
     }
   };
 
@@ -582,23 +618,35 @@ export default function PromptOptimizer({
                   <div className="flex items-center gap-2 border-b border-emerald-500/20 pb-3 mb-4">
                     <BrainCircuit className="w-4.5 h-4.5 text-emerald-400" />
                     <h4 className="font-bold text-emerald-300 text-sm">
-                      Second Brain Context
+                      Eyeno's Perspective
                     </h4>
                   </div>
                   {brainContext ? (
-                    <div className="text-xs text-emerald-200/80 leading-relaxed whitespace-pre-wrap font-mono">
+                    <div className="text-[10px] text-emerald-200/80 leading-relaxed whitespace-pre-wrap font-mono max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                       {brainContext}
                     </div>
                   ) : (
                     <p className="text-xs text-emerald-400/50 leading-relaxed italic">
-                      No highly relevant context was found in the Brain Vault for this prompt. 
+                      Eyeno's brain is empty for this topic. 
                       Gemini optimized this draft using standard knowledge.
                     </p>
                   )}
                 </div>
-                <div className="border-t border-emerald-500/20 pt-4 mt-6 flex flex-col gap-2">
-                   <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono">Cost-Reduction Cache: Active</span>
-                   <p className="text-[10px] text-emerald-400/60 leading-tight">This context was retrieved locally, saving token burn while injecting your custom knowledge into the engineered prompt.</p>
+                <div className="border-t border-emerald-500/20 pt-4 mt-6 flex flex-col gap-3">
+                   {brainContext && !brainContext.includes("successfully fused") && !brainContext.includes("Eyeno is offline") && !brainContext.includes("No highly relevant") ? (
+                     <button
+                       onClick={handleMerge}
+                       disabled={isMerging}
+                       className="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 font-semibold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2"
+                     >
+                       {isMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+                       {isMerging ? "Fusing Perspectives..." : "Merge with Eyeno"}
+                     </button>
+                   ) : null}
+                   <div>
+                     <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono block">Status: Symbiotic Mode</span>
+                     <p className="text-[10px] text-emerald-400/60 leading-tight mt-1">If Eyeno contributes an idea, you can forcefully fuse it into the Main Prompt.</p>
+                   </div>
                 </div>
               </div>
 
