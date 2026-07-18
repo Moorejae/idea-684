@@ -3,63 +3,33 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-// Update these if your repository is under a different username or name
 const REPO_OWNER = "Moorejae";
-const REPO_NAME = "idea-684";
-const MEMORY_FILE_PATH = "data/memory.json";
+// Automatically target the new Obsidian Vault repository
+const REPO_NAME = process.env.OBSIDIAN_REPO_NAME || "my-obsidian-vault";
+const VAULT_FOLDER = "brain"; // Folder inside the repo where files will be stored
 
-export async function getMemory() {
+/**
+ * Creates a new Markdown file in the Obsidian GitHub repository.
+ */
+export async function createObsidianNote(content: string, filename?: string) {
   if (!GITHUB_TOKEN) {
-    console.warn("No GITHUB_TOKEN provided, operating with empty memory.");
-    return { data: [], sha: null };
-  }
-
-  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${MEMORY_FILE_PATH}`;
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `token ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github.v3+json",
-      "User-Agent": "Prompt-Architect-AI",
-    },
-  });
-
-  if (response.status === 404) {
-    return { data: [], sha: null };
-  }
-
-  if (!response.ok) {
-    console.error(`GitHub API error: ${response.statusText}`);
-    return { data: [], sha: null };
-  }
-
-  const result = await response.json();
-  const content = Buffer.from(result.content, "base64").toString("utf8");
-  return { data: JSON.parse(content), sha: result.sha };
-}
-
-export async function updateMemory(newData: any) {
-  if (!GITHUB_TOKEN) {
-    console.warn("No GITHUB_TOKEN provided, skipping memory save.");
+    console.warn("No GITHUB_TOKEN provided, skipping Obsidian note creation.");
     return null;
   }
 
-  const { data: currentData, sha } = await getMemory();
-  
-  // Append new data
-  const updatedData = [...currentData, {
-    id: Date.now().toString(),
-    timestamp: new Date().toISOString(),
-    ...newData
-  }];
-  
-  const contentBase64 = Buffer.from(JSON.stringify(updatedData, null, 2)).toString("base64");
+  // Use a generated filename if one isn't provided. e.g. Concept_Name_123456.md
+  const safeFilename = filename 
+    ? filename.replace(/[^a-z0-9_-]/gi, '_') + '.md'
+    : `Brain_Feed_${Date.now()}.md`;
 
-  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${MEMORY_FILE_PATH}`;
+  const path = `${VAULT_FOLDER}/${safeFilename}`;
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}`;
   
+  const contentBase64 = Buffer.from(content).toString("base64");
+
   const body = {
-    message: "🤖 [skip ci] AI Memory Update",
+    message: `🤖 [skip ci] New Knowledge Extracted: ${safeFilename}`,
     content: contentBase64,
-    ...(sha && { sha }), // Only include sha if it exists (updating existing file)
   };
 
   const response = await fetch(url, {
@@ -75,8 +45,64 @@ export async function updateMemory(newData: any) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`GitHub API error during update: ${response.statusText} - ${errorText}`);
+    throw new Error(`GitHub API error during Obsidian note creation: ${response.statusText} - ${errorText}`);
   }
 
   return await response.json();
+}
+
+/**
+ * Fetches all Markdown files from the Obsidian vault.
+ */
+export async function getAllObsidianNotes() {
+  if (!GITHUB_TOKEN) {
+    console.warn("No GITHUB_TOKEN provided, operating with empty memory.");
+    return [];
+  }
+
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${VAULT_FOLDER}`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `token ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "Prompt-Architect-AI",
+    },
+  });
+
+  if (response.status === 404) {
+    // Directory doesn't exist yet
+    return [];
+  }
+
+  if (!response.ok) {
+    console.error(`GitHub API error: ${response.statusText}`);
+    return [];
+  }
+
+  const files = await response.json();
+  if (!Array.isArray(files)) return [];
+
+  // Fetch the actual content of each .md file
+  const notes = [];
+  for (const file of files) {
+    if (file.name.endsWith('.md')) {
+      const fileRes = await fetch(file.url, {
+        headers: {
+          Authorization: `token ${GITHUB_TOKEN}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Prompt-Architect-AI",
+        }
+      });
+      if (fileRes.ok) {
+        const fileData = await fileRes.json();
+        const content = Buffer.from(fileData.content, "base64").toString("utf8");
+        notes.push({
+          name: file.name,
+          content
+        });
+      }
+    }
+  }
+
+  return notes;
 }

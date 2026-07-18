@@ -355,17 +355,18 @@ Instructions:
   }
 });
 
-// 5. Second Brain Endpoints (Git-Backed DB)
-import { getMemory, updateMemory } from "./github-db.js";
+// 5. Second Brain Endpoints (Obsidian Graph DB)
+import { createObsidianNote, getAllObsidianNotes } from "./github-db.js";
 
-// A. Query the Brain
+// A. Query the Obsidian Brain
 app.get("/api/brain-query", async (req, res) => {
+  if (!checkApiKey(res)) return;
   const query = (req.query.query as string) || "";
   try {
-    const { data: memoryBank } = await getMemory();
+    const memoryBank = await getAllObsidianNotes();
     
     if (!memoryBank || memoryBank.length === 0) {
-      return res.json({ idea: "No memory found in the brain. Feed the brain first!" });
+      return res.json({ idea: "No memory found in the Obsidian vault. Feed the brain first!" });
     }
 
     const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
@@ -385,7 +386,7 @@ app.get("/api/brain-query", async (req, res) => {
     }
 
     if (highestScore > 0 && bestMemory) {
-      return res.json({ idea: `Extracted Idea from Memory [${bestMemory.timestamp}]:\n\n${bestMemory.content}` });
+      return res.json({ idea: `Extracted Idea from [${bestMemory.name}]:\n\n${bestMemory.content}` });
     }
     
     return res.json({ idea: "No strongly related ideas found in the brain." });
@@ -395,7 +396,7 @@ app.get("/api/brain-query", async (req, res) => {
   }
 });
 
-// B. Ingest Raw Data into Brain
+// B. Ingest Raw Data into Obsidian Brain
 app.post("/api/brain-ingest", async (req, res) => {
   if (!checkApiKey(res)) return;
   
@@ -406,29 +407,45 @@ app.post("/api/brain-ingest", async (req, res) => {
   }
 
   try {
-    // 1. Distill raw data using Gemini
+    // 1. Distill raw data using Gemini into Obsidian Markdown
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Extract the fundamental facts, core principles, and "dots" of useful knowledge from the following raw text. Do not summarize or add hallucinations. Just extract the clean, usable data.
+      contents: `You are the AI Brain's Distillation Engine. Extract the fundamental facts, core principles, and useful knowledge from the raw text.
+
+      RULES:
+      1. Do not summarize or add hallucinations. Just extract the clean, usable data.
+      2. Format the output entirely in Markdown.
+      3. CRITICAL: Whenever you mention a core concept, entity, or recurring theme, wrap it in double brackets like [[This]] to create an Obsidian Wikilink. This is how the brain connects dots.
+      4. Suggest a short, safe filename for this note at the very top of your response in this exact format:
+         FILENAME: Concept_Name
       
       RAW DATA:
       """
       ${rawData}
       """`,
       config: {
-        systemInstruction: "You are the AI Brain's Distillation Engine. Extract verified, factual dots of information cleanly.",
+        temperature: 0.3,
       }
     });
 
-    const distilledContent = response.text || "";
+    let distilledContent = response.text || "";
+    let filename = "";
 
-    // 2. Save distilled dots to GitHub DB
-    await updateMemory({
-      source: source || "User Upload",
-      content: distilledContent
-    });
+    // Extract the suggested filename if provided
+    const filenameMatch = distilledContent.match(/^FILENAME:\s*(.+)/i);
+    if (filenameMatch) {
+      filename = filenameMatch[1].trim();
+      // Remove the filename line from the actual content
+      distilledContent = distilledContent.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
+    }
 
-    res.json({ success: true, message: "Raw data distilled and committed to Git-Backed AI Memory." });
+    // Append source meta-data
+    distilledContent += `\n\n---\n**Source:** ${source || "Manual Feed"}\n**Date:** ${new Date().toISOString()}`;
+
+    // 2. Save distilled dots to Obsidian GitHub Repo
+    await createObsidianNote(distilledContent, filename);
+
+    res.json({ success: true, message: "Raw data distilled and committed to the Obsidian Vault!" });
   } catch (err: any) {
     console.error("Brain Ingest Error:", err);
     res.status(500).json({ error: "Failed to ingest data: " + err.message });
