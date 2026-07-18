@@ -23,7 +23,7 @@ export default function PromptOptimizer({
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
 
-  const API_BASE = import.meta.env.VITE_API_URL || "";
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
   
   // Q&A answers
   const [answers, setAnswers] = useState<Record<string, string>>({});
