@@ -5,6 +5,36 @@ import { motion } from "motion/react";
 export default function BrainVault() {
   const [isUploading, setIsUploading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [rawData, setRawData] = useState("");
+  const [isIngestingText, setIsIngestingText] = useState(false);
+  const [textSuccess, setTextSuccess] = useState(false);
+
+  const handleIngestText = async () => {
+    if (!rawData.trim()) return;
+    setIsIngestingText(true);
+    setTextSuccess(false);
+    
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+      const response = await fetch(`${API_BASE}/api/brain-ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawData, source: "Manual Feed" })
+      });
+      
+      if (response.ok) {
+        setTextSuccess(true);
+        setRawData(""); // Clear input on success
+      } else {
+        console.error("Failed to ingest data");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsIngestingText(false);
+      setTimeout(() => setTextSuccess(false), 3000);
+    }
+  };
 
   const handleUpload = () => {
     setIsUploading(true);
@@ -34,10 +64,26 @@ export default function BrainVault() {
             <Database className="w-10 h-10 text-slate-500 mb-3" />
             <h3 className="text-sm font-semibold text-white mb-1">Ingest Text Data</h3>
             <p className="text-[10px] text-slate-400 mb-4 px-4 leading-relaxed">
-              Upload PDFs, scripts, or raw text. Eyeno will extract concepts and interlink them safely.
+              Paste raw text (books, articles, experiences). Eyeno will extract concepts and interlink them safely into GitHub.
             </p>
-            <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-semibold text-white transition-all w-full max-w-[200px]">
-              Select Text Files
+            <textarea
+              className="w-full h-24 bg-black/50 border border-white/10 rounded-lg p-2 text-xs text-white mb-3 placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+              placeholder="Paste raw data here..."
+              value={rawData}
+              onChange={(e) => setRawData(e.target.value)}
+            />
+            <button 
+              onClick={handleIngestText}
+              disabled={isIngestingText || !rawData.trim()}
+              className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-semibold text-white transition-all w-full max-w-[200px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isIngestingText ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Ingesting...</>
+              ) : textSuccess ? (
+                <><ShieldCheck className="w-4 h-4 text-emerald-400" /> Memorized</>
+              ) : (
+                "Feed Brain"
+              )}
             </button>
           </div>
 
