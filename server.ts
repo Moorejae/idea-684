@@ -355,43 +355,83 @@ Instructions:
   }
 });
 
-// 5. Second Brain Query Endpoint
-import fs from "fs";
-app.get("/api/brain-query", (req, res) => {
+// 5. Second Brain Endpoints (Git-Backed DB)
+import { getMemory, updateMemory } from "./github-db.js";
+
+// A. Query the Brain
+app.get("/api/brain-query", async (req, res) => {
   const query = (req.query.query as string) || "";
   try {
-    const wikiDir = path.join(process.cwd(), "brain", "wiki");
-    if (!fs.existsSync(wikiDir)) {
-      return res.json({ idea: "No strongly related ideas found in the brain. Feed the brain first!" });
-    }
+    const { data: memoryBank } = await getMemory();
     
-    const files = fs.readdirSync(wikiDir).filter(f => f.endsWith(".md"));
-    let bestFile = "";
-    let highestScore = -1;
-    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    if (!memoryBank || memoryBank.length === 0) {
+      return res.json({ idea: "No memory found in the brain. Feed the brain first!" });
+    }
 
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(wikiDir, file), "utf8");
-      const contentLower = content.toLowerCase();
+    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    let bestMemory = null;
+    let highestScore = -1;
+
+    for (const mem of memoryBank) {
+      const contentLower = (mem.content || "").toLowerCase();
       let score = 0;
       for (const word of queryWords) {
         if (contentLower.includes(word)) score++;
       }
       if (score > highestScore) {
         highestScore = score;
-        bestFile = file;
+        bestMemory = mem;
       }
     }
 
-    if (highestScore > 0 && bestFile) {
-      const content = fs.readFileSync(path.join(wikiDir, bestFile), "utf8");
-      return res.json({ idea: `Extracted Idea from [${bestFile}]:\n\n${content.substring(0, 800)}...` });
+    if (highestScore > 0 && bestMemory) {
+      return res.json({ idea: `Extracted Idea from Memory [${bestMemory.timestamp}]:\n\n${bestMemory.content}` });
     }
     
     return res.json({ idea: "No strongly related ideas found in the brain." });
   } catch (error) {
     console.error("Brain Query Error:", error);
-    return res.json({ idea: "No strongly related ideas found in the brain." });
+    return res.json({ idea: "No strongly related ideas found in the brain due to an error." });
+  }
+});
+
+// B. Ingest Raw Data into Brain
+app.post("/api/brain-ingest", async (req, res) => {
+  if (!checkApiKey(res)) return;
+  
+  const { rawData, source } = req.body;
+  if (!rawData) {
+    res.status(400).json({ error: "rawData is required to feed the brain." });
+    return;
+  }
+
+  try {
+    // 1. Distill raw data using Gemini
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Extract the fundamental facts, core principles, and "dots" of useful knowledge from the following raw text. Do not summarize or add hallucinations. Just extract the clean, usable data.
+      
+      RAW DATA:
+      """
+      ${rawData}
+      """`,
+      config: {
+        systemInstruction: "You are the AI Brain's Distillation Engine. Extract verified, factual dots of information cleanly.",
+      }
+    });
+
+    const distilledContent = response.text || "";
+
+    // 2. Save distilled dots to GitHub DB
+    await updateMemory({
+      source: source || "User Upload",
+      content: distilledContent
+    });
+
+    res.json({ success: true, message: "Raw data distilled and committed to Git-Backed AI Memory." });
+  } catch (err: any) {
+    console.error("Brain Ingest Error:", err);
+    res.status(500).json({ error: "Failed to ingest data: " + err.message });
   }
 });
 
