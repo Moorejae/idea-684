@@ -26,7 +26,8 @@ export default function PromptOptimizer({
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
   
   // Q&A answers
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
   const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>('standard');
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
   const [finalResult, setFinalResult] = useState<{
@@ -54,7 +55,8 @@ export default function PromptOptimizer({
   const handleReset = () => {
     setStep(1);
     setAnalysis(null);
-    setAnswers({});
+    setSelectedOptions({});
+    setCustomAnswers({});
     setFinalResult(null);
     setTestInput("");
     setSimulatedOutput("");
@@ -96,11 +98,14 @@ export default function PromptOptimizer({
         .catch(e => console.error("Brain query failed:", e));
 
       // Seed initial empty answers
-      const initialAnswers: Record<string, string> = {};
+      const initialSelected: Record<string, string[]> = {};
+      const initialCustom: Record<string, string> = {};
       data.clarifyingQuestions.forEach((q) => {
-        initialAnswers[q.id] = "";
+        initialSelected[q.id] = [];
+        initialCustom[q.id] = "";
       });
-      setAnswers(initialAnswers);
+      setSelectedOptions(initialSelected);
+      setCustomAnswers(initialCustom);
       setStep(2);
     } catch (err: any) {
       console.error(err);
@@ -120,11 +125,18 @@ export default function PromptOptimizer({
     setApiError(null);
 
     // Format compiled answers
-    const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => ({
-      questionId: q.id,
-      question: q.question,
-      answer: answers[q.id] || "No input provided"
-    }));
+    const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => {
+      const selected = selectedOptions[q.id] || [];
+      const custom = customAnswers[q.id] || "";
+      const combined = [...selected];
+      if (custom.trim()) combined.push(custom.trim());
+      
+      return {
+        questionId: q.id,
+        question: q.question,
+        answer: combined.length > 0 ? combined.join(", ") : "No input provided"
+      };
+    });
 
     try {
       const res = await fetch(`${API_BASE}/api/regenerate-prompt`, {
@@ -483,11 +495,18 @@ export default function PromptOptimizer({
                         {q.options && q.options.length > 0 && (
                           <div className="flex flex-wrap gap-2.5 pt-1">
                             {q.options.map((opt, optIdx) => {
-                              const isSelected = answers[q.id] === opt;
+                              const isSelected = (selectedOptions[q.id] || []).includes(opt);
                               return (
                                 <button
                                   key={optIdx}
-                                  onClick={() => setAnswers({ ...answers, [q.id]: opt })}
+                                  onClick={() => {
+                                    const currentSelected = selectedOptions[q.id] || [];
+                                    if (isSelected) {
+                                      setSelectedOptions({ ...selectedOptions, [q.id]: currentSelected.filter(o => o !== opt) });
+                                    } else {
+                                      setSelectedOptions({ ...selectedOptions, [q.id]: [...currentSelected, opt] });
+                                    }
+                                  }}
                                   className={`px-3.5 py-2 rounded-xl text-xs font-medium border cursor-pointer transition-all ${
                                     isSelected
                                       ? "bg-indigo-600 text-white border-indigo-500/50 shadow-sm"
@@ -506,8 +525,8 @@ export default function PromptOptimizer({
                           <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">Custom or Specific Answer</label>
                           <input
                             type="text"
-                            value={answers[q.id] || ""}
-                            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                            value={customAnswers[q.id] || ""}
+                            onChange={(e) => setCustomAnswers({ ...customAnswers, [q.id]: e.target.value })}
                             placeholder="Write your custom detailed answer here..."
                             className="w-full bg-[#16161D] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all placeholder-slate-500"
                           />

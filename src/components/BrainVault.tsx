@@ -1,50 +1,42 @@
-import { useState } from "react";
-import { UploadCloud, Image as ImageIcon, Database, BrainCircuit, ShieldCheck, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { BrainCircuit, ShieldCheck, Network, Database } from "lucide-react";
 import { motion } from "motion/react";
 
+// Generate mock node positions for the Obsidian-style graph
+const generateNodes = (count: number) => {
+  return Array.from({ length: count }).map((_, i) => ({
+    id: i,
+    x: 10 + Math.random() * 80, // percentage 10-90
+    y: 10 + Math.random() * 80, // percentage 10-90
+    size: Math.random() * 8 + 4, // 4-12px
+    color: i === 0 ? "#10B981" : i % 4 === 0 ? "#8B5CF6" : i % 3 === 0 ? "#F59E0B" : "#3B82F6",
+  }));
+};
+
+const MOCK_NODES = generateNodes(30);
+const MOCK_EDGES = MOCK_NODES.map((n, i) => {
+  const target1 = MOCK_NODES[Math.floor(Math.random() * MOCK_NODES.length)];
+  const target2 = MOCK_NODES[Math.floor(Math.random() * MOCK_NODES.length)];
+  return [
+    { id: `e${i}-1`, source: n, target: target1 },
+    { id: `e${i}-2`, source: n, target: target2 }
+  ];
+}).flat();
+
 export default function BrainVault() {
-  const [isUploading, setIsUploading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [rawData, setRawData] = useState("");
-  const [isIngestingText, setIsIngestingText] = useState(false);
-  const [textSuccess, setTextSuccess] = useState(false);
+  const [nodes, setNodes] = useState(MOCK_NODES);
 
-  const handleIngestText = async () => {
-    if (!rawData.trim()) return;
-    setIsIngestingText(true);
-    setTextSuccess(false);
-    
-    try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
-      const response = await fetch(`${API_BASE}/api/brain-ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawData, source: "Manual Feed" })
-      });
-      
-      if (response.ok) {
-        setTextSuccess(true);
-        setRawData(""); // Clear input on success
-      } else {
-        console.error("Failed to ingest data");
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsIngestingText(false);
-      setTimeout(() => setTextSuccess(false), 3000);
-    }
-  };
-
-  const handleUpload = () => {
-    setIsUploading(true);
-    setSuccess(false);
-    setTimeout(() => {
-      setIsUploading(false);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    }, 2000);
-  };
+  // Pulse animation effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNodes(prev => prev.map(n => ({
+        ...n,
+        x: n.x + (Math.random() * 2 - 1),
+        y: n.y + (Math.random() * 2 - 1)
+      })));
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
@@ -59,53 +51,60 @@ export default function BrainVault() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-          <div className="bg-[#0D0D10]/50 border border-white/5 rounded-xl p-6 flex flex-col items-center justify-center text-center hover:border-emerald-500/20 transition-all">
-            <Database className="w-10 h-10 text-slate-500 mb-3" />
-            <h3 className="text-sm font-semibold text-white mb-1">Ingest Text Data</h3>
-            <p className="text-[10px] text-slate-400 mb-4 px-4 leading-relaxed">
-              Paste raw text (books, articles, experiences). Eyeno will extract concepts and interlink them safely into GitHub.
-            </p>
-            <textarea
-              className="w-full h-24 bg-black/50 border border-white/10 rounded-lg p-2 text-xs text-white mb-3 placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
-              placeholder="Paste raw data here..."
-              value={rawData}
-              onChange={(e) => setRawData(e.target.value)}
-            />
-            <button 
-              onClick={handleIngestText}
-              disabled={isIngestingText || !rawData.trim()}
-              className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-semibold text-white transition-all w-full max-w-[200px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isIngestingText ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Ingesting...</>
-              ) : textSuccess ? (
-                <><ShieldCheck className="w-4 h-4 text-emerald-400" /> Memorized</>
-              ) : (
-                "Feed Brain"
-              )}
-            </button>
+        <div className="mt-8 border border-white/5 rounded-xl bg-[#08080A] relative overflow-hidden h-[400px]">
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/50 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
+            <Network className="w-4 h-4 text-emerald-400" />
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Semantic Knowledge Graph</span>
           </div>
 
-          <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(16,185,129,0.05)] transition-all">
-            <ImageIcon className="w-10 h-10 text-emerald-400 mb-3" />
-            <h3 className="text-sm font-semibold text-emerald-300 mb-1">Ingest Vision / UI Build</h3>
-            <p className="text-[10px] text-emerald-400/70 mb-4 px-4 leading-relaxed">
-              Upload a mockup. Gemini Vision will extract structural data. Heavy image files are auto-cleared.
-            </p>
-            <button 
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-all w-full max-w-[200px] flex items-center justify-center gap-2"
-            >
-              {isUploading ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Ingesting...</>
-              ) : success ? (
-                <><ShieldCheck className="w-4 h-4" /> Synthesized</>
-              ) : (
-                <><UploadCloud className="w-4 h-4" /> Upload Image</>
-              )}
-            </button>
+          <svg className="absolute inset-0 w-full h-full">
+            {/* Edges */}
+            {MOCK_EDGES.map(edge => (
+              <motion.line
+                key={edge.id}
+                x1={`${edge.source.x}%`}
+                y1={`${edge.source.y}%`}
+                x2={`${edge.target.x}%`}
+                y2={`${edge.target.y}%`}
+                stroke="rgba(255,255,255,0.05)"
+                strokeWidth={1}
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 2, ease: "easeInOut" }}
+              />
+            ))}
+
+            {/* Nodes */}
+            {nodes.map(node => (
+              <motion.circle
+                key={node.id}
+                cx={`${node.x}%`}
+                cy={`${node.y}%`}
+                r={node.size}
+                fill={node.color}
+                className="cursor-pointer"
+                whileHover={{ scale: 1.5, filter: "brightness(1.5)" }}
+                animate={{ 
+                  cx: [`${node.x}%`, `${node.x + (Math.random() * 2 - 1)}%`],
+                  cy: [`${node.y}%`, `${node.y + (Math.random() * 2 - 1)}%`]
+                }}
+                transition={{ duration: 3, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
+              />
+            ))}
+          </svg>
+          
+          <div className="absolute bottom-4 right-4 z-10 flex gap-2">
+            {[
+              { label: "Core Prompts", color: "bg-emerald-500" },
+              { label: "Mental Models", color: "bg-purple-500" },
+              { label: "Domain Logic", color: "bg-amber-500" },
+              { label: "Constraints", color: "bg-blue-500" }
+            ].map(legend => (
+              <div key={legend.label} className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded backdrop-blur border border-white/5">
+                <span className={`w-2 h-2 rounded-full ${legend.color}`} />
+                <span className="text-[9px] text-slate-400 uppercase">{legend.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
