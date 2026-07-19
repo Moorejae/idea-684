@@ -129,6 +129,21 @@ export default function PromptOptimizer({
     setBrainContext(null);
   };
 
+  const handleOptionToggle = (questionId: string, option: string) => {
+    setAnswers((prev) => {
+      const currentAns = prev[questionId] || "";
+      let segments = currentAns.split(",").map(s => s.trim()).filter(Boolean);
+      
+      if (segments.includes(option)) {
+        segments = segments.filter(s => s !== option);
+      } else {
+        segments.push(option);
+      }
+      
+      return { ...prev, [questionId]: segments.join(", ") };
+    });
+  };
+
   // Step 1: Submit draft for analysis
   const handleAnalyze = async () => {
     if (!initialPrompt.trim()) return;
@@ -548,11 +563,13 @@ export default function PromptOptimizer({
                         {q.options && q.options.length > 0 && (
                           <div className="flex flex-wrap gap-2.5 pt-1">
                             {q.options.map((opt, optIdx) => {
-                              const isSelected = answers[q.id] === opt;
+                              const currentAns = answers[q.id] || "";
+                              const segments = currentAns.split(",").map(s => s.trim()).filter(Boolean);
+                              const isSelected = segments.includes(opt);
                               return (
                                 <button
                                   key={optIdx}
-                                  onClick={() => setAnswers({ ...answers, [q.id]: opt })}
+                                  onClick={() => handleOptionToggle(q.id, opt)}
                                   className={`px-3.5 py-2 rounded-xl text-xs font-medium border cursor-pointer transition-all ${isSelected
                                       ? "bg-indigo-600 text-white border-indigo-500/50 shadow-sm"
                                       : "bg-white/5 border border-white/5 hover:bg-white/10 text-slate-300"
