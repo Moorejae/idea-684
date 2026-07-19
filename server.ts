@@ -243,6 +243,52 @@ app.post("/api/regenerate-prompt", async (req, res) => {
     jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsedResult = JSON.parse(jsonText);
     res.json(parsedResult);
+
+    // ==========================================
+    // THE CONTINUOUS LEARNING LOOP (BACKGROUND)
+    // ==========================================
+    // Train Eyeno's brain for free without raw files by extracting the core logic 
+    // of this successful prompt and saving it as a node.
+    (async () => {
+      try {
+        const ai = getAI();
+        const distillRes = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `You are the AI Brain's Distillation Engine. We just engineered a highly optimized prompt.
+          Extract the core architectural patterns, constraints, and mental models from this prompt.
+          
+          RULES:
+          1. Do not summarize the prompt itself. Extract the REUSABLE prompt engineering techniques and domain concepts used.
+          2. Format entirely in Markdown.
+          3. CRITICAL: Wrap core concepts in double brackets like [[This]] to create Obsidian Wikilinks.
+          4. Suggest a short filename at the top: FILENAME: Prompt_Pattern_Name
+          
+          FINAL PROMPT TO LEARN FROM:
+          """
+          ${parsedResult.refinedPrompt}
+          """`,
+          config: { temperature: 0.4 }
+        });
+
+        let distilled = distillRes.text || "";
+        let filename = \`Prompt_Pattern_\${Date.now()}\`;
+
+        const filenameMatch = distilled.match(/^FILENAME:\s*(.+)/i);
+        if (filenameMatch) {
+          filename = filenameMatch[1].trim();
+          distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
+        }
+
+        distilled += \`\n\n---\n**Source:** Auto-Learning Loop (Prompt Architect)\n**Date:** \${new Date().toISOString()}\`;
+
+        // Import dynamically to avoid hoisting issues just in case
+        const { createObsidianNote } = await import("./github-db.js");
+        await createObsidianNote(distilled, filename);
+        console.log(\`[LEARNING LOOP] Successfully trained brain with new node: \${filename}\`);
+      } catch (loopErr) {
+        console.error("[LEARNING LOOP] Failed to ingest prompt:", loopErr);
+      }
+    })();
   } catch (err: any) {
     console.error("Regenerate API Error:", err);
     res.status(500).json({ error: "Failed to refine prompt: " + err.message });
