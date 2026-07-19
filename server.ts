@@ -271,7 +271,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
         });
 
         let distilled = distillRes.text || "";
-        let filename = \`Prompt_Pattern_\${Date.now()}\`;
+        let filename = "Prompt_Pattern_" + Date.now();
 
         const filenameMatch = distilled.match(/^FILENAME:\s*(.+)/i);
         if (filenameMatch) {
@@ -279,12 +279,12 @@ app.post("/api/regenerate-prompt", async (req, res) => {
           distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
         }
 
-        distilled += \`\n\n---\n**Source:** Auto-Learning Loop (Prompt Architect)\n**Date:** \${new Date().toISOString()}\`;
+        distilled += "\n\n---\n**Source:** Auto-Learning Loop (Prompt Architect)\n**Date:** " + new Date().toISOString();
 
         // Import dynamically to avoid hoisting issues just in case
         const { createObsidianNote } = await import("./github-db.js");
         await createObsidianNote(distilled, filename);
-        console.log(\`[LEARNING LOOP] Successfully trained brain with new node: \${filename}\`);
+        console.log("[LEARNING LOOP] Successfully trained brain with new node: " + filename);
       } catch (loopErr) {
         console.error("[LEARNING LOOP] Failed to ingest prompt:", loopErr);
       }
@@ -525,3 +525,4 @@ async function startServer() {
 }
 
 startServer();
+
