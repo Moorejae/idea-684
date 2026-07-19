@@ -99,7 +99,7 @@ export default function App() {
           </div>
 
           {/* Navigation Tab Controls */}
-          <nav className="flex items-center gap-1.5">
+          <nav className="flex flex-wrap items-center gap-2 mt-4 md:mt-0 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
             <button
               onClick={() => setActiveTab("optimizer")}
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all border ${

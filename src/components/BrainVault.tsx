@@ -79,7 +79,7 @@ export default function BrainVault() {
             )}
           </div>
           
-          <div className="absolute bottom-4 right-4 z-10 flex gap-2 cursor-default">
+          <div className="absolute bottom-4 right-4 left-4 z-10 flex flex-wrap justify-end gap-2 cursor-default pointer-events-none">
             {[
               { label: "Core Prompts", color: "bg-emerald-500" },
               { label: "Mental Models", color: "bg-purple-500" },

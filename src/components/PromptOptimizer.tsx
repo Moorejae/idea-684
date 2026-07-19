@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { 
-  Sparkles, Terminal, CheckCircle2, AlertCircle, ArrowRight, Copy, RotateCcw, 
+import {
+  Sparkles, Terminal, CheckCircle2, AlertCircle, ArrowRight, Copy, RotateCcw,
   Play, Check, Loader2, HelpCircle, Award, ListChecks, HelpCircle as QuestionIcon,
   ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2, BrainCircuit
 } from "lucide-react";
@@ -14,76 +14,47 @@ interface PromptOptimizerProps {
   onSavePrompt: (prompt: SavedPrompt) => void;
 }
 
-export default function PromptOptimizer({ 
-  initialPrompt, 
-  setInitialPrompt, 
-  onSavePrompt 
+export default function PromptOptimizer({
+  initialPrompt,
+  setInitialPrompt,
+  onSavePrompt
 }: PromptOptimizerProps) {
-  // Load state helper
-  const loadState = (key: string, defaultVal: any) => {
-    try {
-      const stored = localStorage.getItem(`po_${key}`);
-      return stored ? JSON.parse(stored) : defaultVal;
-    } catch { return defaultVal; }
-  };
-
-  const [step, setStep] = useState<1 | 2 | 3>(() => loadState("step", 1));
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(() => loadState("analysis", null));
-  const [promptCategory, setPromptCategory] = useState<string>(() => loadState("promptCategory", "Basic/General"));
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
 
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  
+  const API_BASE = import.meta.env.VITE_API_URL || "";
+
   // Q&A answers
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>(() => loadState("selectedOptions", {}));
-  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>(() => loadState("customAnswers", {}));
-  const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>(() => loadState("selectedStyle", 'standard'));
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>('standard');
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
   const [finalResult, setFinalResult] = useState<{
     refinedPrompt: string;
     explanation: string;
     keyAdditions: string[];
-  } | null>(() => loadState("finalResult", null));
+  } | null>(null);
 
   // Simulation state
-  const [testInput, setTestInput] = useState<string>(() => loadState("testInput", ""));
+  const [testInput, setTestInput] = useState<string>("");
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const [simulatedOutput, setSimulatedOutput] = useState<string>(() => loadState("simulatedOutput", ""));
-  const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>(() => loadState("simulatedAnalysis", ""));
+  const [simulatedOutput, setSimulatedOutput] = useState<string>("");
+  const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>("");
 
   // Brain Context (Eyeno)
-  const [brainContext, setBrainContext] = useState<string | null>(() => loadState("brainContext", null));
+  const [brainContext, setBrainContext] = useState<string | null>(null);
   const [isMerging, setIsMerging] = useState<boolean>(false);
 
   // UI state
   const [apiError, setApiError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(() => loadState("activeQuestionIndex", 0));
-
-  // Sync state to localStorage
-  useEffect(() => {
-    localStorage.setItem("po_step", JSON.stringify(step));
-    localStorage.setItem("po_analysis", JSON.stringify(analysis));
-    localStorage.setItem("po_promptCategory", JSON.stringify(promptCategory));
-    localStorage.setItem("po_selectedOptions", JSON.stringify(selectedOptions));
-    localStorage.setItem("po_customAnswers", JSON.stringify(customAnswers));
-    localStorage.setItem("po_selectedStyle", JSON.stringify(selectedStyle));
-    localStorage.setItem("po_finalResult", JSON.stringify(finalResult));
-    localStorage.setItem("po_testInput", JSON.stringify(testInput));
-    localStorage.setItem("po_simulatedOutput", JSON.stringify(simulatedOutput));
-    localStorage.setItem("po_simulatedAnalysis", JSON.stringify(simulatedAnalysis));
-    localStorage.setItem("po_brainContext", JSON.stringify(brainContext));
-    localStorage.setItem("po_activeQuestionIndex", JSON.stringify(activeQuestionIndex));
-  }, [step, analysis, promptCategory, selectedOptions, customAnswers, selectedStyle, finalResult, testInput, simulatedOutput, simulatedAnalysis, brainContext, activeQuestionIndex]);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
 
   // Reset helper
   const handleReset = () => {
-    setInitialPrompt(""); // Clear draft
     setStep(1);
     setAnalysis(null);
-    setPromptCategory("Basic/General");
-    setSelectedOptions({});
-    setCustomAnswers({});
+    setAnswers({});
     setFinalResult(null);
     setTestInput("");
     setSimulatedOutput("");
@@ -91,9 +62,6 @@ export default function PromptOptimizer({
     setApiError(null);
     setActiveQuestionIndex(0);
     setBrainContext(null);
-    
-    // Clear storage keys
-    ["step", "analysis", "promptCategory", "selectedOptions", "customAnswers", "selectedStyle", "finalResult", "testInput", "simulatedOutput", "simulatedAnalysis", "brainContext", "activeQuestionIndex"].forEach(k => localStorage.removeItem(`po_${k}`));
   };
 
   // Step 1: Submit draft for analysis
@@ -106,7 +74,7 @@ export default function PromptOptimizer({
       const res = await fetch(`${API_BASE}/api/analyze-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: initialPrompt, category: promptCategory })
+        body: JSON.stringify({ prompt: initialPrompt })
       });
 
       if (!res.ok) {
@@ -116,26 +84,23 @@ export default function PromptOptimizer({
 
       const data: AnalysisResult = await res.json();
       setAnalysis(data);
-      
+
       // Query Second Brain in parallel
       fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(initialPrompt)}`)
         .then(r => r.json())
         .then(d => {
-           if(d.idea && !d.idea.includes("No strongly related ideas")) {
-             setBrainContext(d.idea);
-           }
+          if (d.idea && !d.idea.includes("No strongly related ideas")) {
+            setBrainContext(d.idea);
+          }
         })
         .catch(e => console.error("Brain query failed:", e));
 
       // Seed initial empty answers
-      const initialSelected: Record<string, string[]> = {};
-      const initialCustom: Record<string, string> = {};
+      const initialAnswers: Record<string, string> = {};
       data.clarifyingQuestions.forEach((q) => {
-        initialSelected[q.id] = [];
-        initialCustom[q.id] = "";
+        initialAnswers[q.id] = "";
       });
-      setSelectedOptions(initialSelected);
-      setCustomAnswers(initialCustom);
+      setAnswers(initialAnswers);
       setStep(2);
     } catch (err: any) {
       console.error(err);
@@ -155,18 +120,11 @@ export default function PromptOptimizer({
     setApiError(null);
 
     // Format compiled answers
-    const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => {
-      const selected = selectedOptions[q.id] || [];
-      const custom = customAnswers[q.id] || "";
-      const combined = [...selected];
-      if (custom.trim()) combined.push(custom.trim());
-      
-      return {
-        questionId: q.id,
-        question: q.question,
-        answer: combined.length > 0 ? combined.join(", ") : "No input provided"
-      };
-    });
+    const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => ({
+      questionId: q.id,
+      question: q.question,
+      answer: answers[q.id] || "No input provided"
+    }));
 
     try {
       const res = await fetch(`${API_BASE}/api/regenerate-prompt`, {
@@ -358,7 +316,7 @@ export default function PromptOptimizer({
                   </h3>
                 </div>
                 {initialPrompt && (
-                  <button 
+                  <button
                     onClick={() => setInitialPrompt("")}
                     className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
                   >
@@ -378,27 +336,11 @@ export default function PromptOptimizer({
                 />
               </div>
 
-              <div className="mt-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-t border-white/5 pt-5">
-                <div className="flex-1 w-full max-w-xs space-y-1.5">
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">Prompt Category</label>
-                  <select 
-                    value={promptCategory}
-                    onChange={(e) => setPromptCategory(e.target.value)}
-                    className="w-full bg-[#16161D] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="Basic/General">Basic / General Purpose</option>
-                    <option value="Full Stack Development">Full Stack Development</option>
-                    <option value="Web App / Website">Web App / Website</option>
-                    <option value="UI Build / Visual Design">UI Build / Visual Design</option>
-                    <option value="Data Analysis">Data Analysis</option>
-                    <option value="Writing / Content Creation">Writing / Content Creation</option>
-                  </select>
-                </div>
-                
+              <div className="mt-5 flex justify-end">
                 <button
                   onClick={handleAnalyze}
                   disabled={!initialPrompt.trim() || isAnalyzing}
-                  className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-55 disabled:cursor-not-allowed group"
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-55 disabled:cursor-not-allowed group"
                 >
                   {isAnalyzing ? (
                     <>
@@ -449,13 +391,12 @@ export default function PromptOptimizer({
                           <span className="font-semibold text-xs text-slate-300">
                             {evalItem.criteria}
                           </span>
-                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                            isExcellent 
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-                              : isGood 
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              : "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                          }`}>
+                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isExcellent
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : isGood
+                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                            }`}>
                             {evalItem.rating.toUpperCase().replace('-', ' ')}
                           </span>
                         </div>
@@ -541,23 +482,15 @@ export default function PromptOptimizer({
                         {q.options && q.options.length > 0 && (
                           <div className="flex flex-wrap gap-2.5 pt-1">
                             {q.options.map((opt, optIdx) => {
-                              const isSelected = (selectedOptions[q.id] || []).includes(opt);
+                              const isSelected = answers[q.id] === opt;
                               return (
                                 <button
                                   key={optIdx}
-                                  onClick={() => {
-                                    const currentSelected = selectedOptions[q.id] || [];
-                                    if (isSelected) {
-                                      setSelectedOptions({ ...selectedOptions, [q.id]: currentSelected.filter(o => o !== opt) });
-                                    } else {
-                                      setSelectedOptions({ ...selectedOptions, [q.id]: [...currentSelected, opt] });
-                                    }
-                                  }}
-                                  className={`px-3.5 py-2 rounded-xl text-xs font-medium border cursor-pointer transition-all ${
-                                    isSelected
+                                  onClick={() => setAnswers({ ...answers, [q.id]: opt })}
+                                  className={`px-3.5 py-2 rounded-xl text-xs font-medium border cursor-pointer transition-all ${isSelected
                                       ? "bg-indigo-600 text-white border-indigo-500/50 shadow-sm"
                                       : "bg-white/5 border border-white/5 hover:bg-white/10 text-slate-300"
-                                  }`}
+                                    }`}
                                 >
                                   {opt}
                                 </button>
@@ -571,8 +504,8 @@ export default function PromptOptimizer({
                           <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">Custom or Specific Answer</label>
                           <input
                             type="text"
-                            value={customAnswers[q.id] || ""}
-                            onChange={(e) => setCustomAnswers({ ...customAnswers, [q.id]: e.target.value })}
+                            value={answers[q.id] || ""}
+                            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                             placeholder="Write your custom detailed answer here..."
                             className="w-full bg-[#16161D] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all placeholder-slate-500"
                           />
@@ -618,11 +551,10 @@ export default function PromptOptimizer({
                                 <button
                                   key={s.id}
                                   onClick={() => setSelectedStyle(s.id as any)}
-                                  className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                                    isSelected
+                                  className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${isSelected
                                       ? "bg-indigo-600/20 border border-indigo-500/50 text-indigo-300"
                                       : "bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400"
-                                  }`}
+                                    }`}
                                 >
                                   <span className="font-bold text-xs block">{s.name}</span>
                                   <span className="text-[9px] text-slate-500 block mt-0.5">{s.desc}</span>
@@ -656,7 +588,7 @@ export default function PromptOptimizer({
 
                 {/* Reset helper */}
                 <div className="mt-8 text-center">
-                  <button 
+                  <button
                     onClick={handleReset}
                     className="text-xs text-slate-500 hover:text-slate-300 underline cursor-pointer"
                   >
@@ -694,26 +626,26 @@ export default function PromptOptimizer({
                     </div>
                   ) : (
                     <p className="text-xs text-emerald-400/50 leading-relaxed italic">
-                      Eyeno's brain is empty for this topic. 
+                      Eyeno's brain is empty for this topic.
                       Gemini optimized this draft using standard knowledge.
                     </p>
                   )}
                 </div>
                 <div className="border-t border-emerald-500/20 pt-4 mt-6 flex flex-col gap-3">
-                   {brainContext && !brainContext.includes("successfully fused") && !brainContext.includes("Eyeno is offline") && !brainContext.includes("No highly relevant") ? (
-                     <button
-                       onClick={handleMerge}
-                       disabled={isMerging}
-                       className="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 font-semibold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2"
-                     >
-                       {isMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
-                       {isMerging ? "Fusing Perspectives..." : "Merge with Eyeno"}
-                     </button>
-                   ) : null}
-                   <div>
-                     <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono block">Status: Symbiotic Mode</span>
-                     <p className="text-[10px] text-emerald-400/60 leading-tight mt-1">If Eyeno contributes an idea, you can forcefully fuse it into the Main Prompt.</p>
-                   </div>
+                  {brainContext && !brainContext.includes("successfully fused") && !brainContext.includes("Eyeno is offline") && !brainContext.includes("No highly relevant") ? (
+                    <button
+                      onClick={handleMerge}
+                      disabled={isMerging}
+                      className="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 font-semibold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      {isMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+                      {isMerging ? "Fusing Perspectives..." : "Merge with Eyeno"}
+                    </button>
+                  ) : null}
+                  <div>
+                    <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono block">Status: Symbiotic Mode</span>
+                    <p className="text-[10px] text-emerald-400/60 leading-tight mt-1">If Eyeno contributes an idea, you can forcefully fuse it into the Main Prompt.</p>
+                  </div>
                 </div>
               </div>
 
