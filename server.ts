@@ -58,7 +58,7 @@ When analyzing or refining a user's prompt, adhere strictly to these core resear
 app.post("/api/analyze-prompt", async (req, res) => {
   if (!checkApiKey(res)) return;
 
-  const { prompt: userPrompt } = req.body;
+  const { prompt: userPrompt, category = "Basic/General" } = req.body;
   if (!userPrompt || typeof userPrompt !== "string" || !userPrompt.trim()) {
     res.status(400).json({ error: "A valid prompt string is required." });
     return;
@@ -67,14 +67,14 @@ app.post("/api/analyze-prompt", async (req, res) => {
   try {
     const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
+      contents: `Analyze this rough prompt draft specifically for the category: "${category}". Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 5 to 10 highly specific clarifying questions to gather missing parameters required for a professional ${category} build.
       
       User's Rough Prompt:
       """
       ${userPrompt}
       """`,
       config: {
-        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nProvide a deep, constructive analysis. Make sure the clarifying questions you ask are highly effective, targeted at identifying critical omissions (like target technology, user constraints, output format, or persona details) and include suggestive options for quick user replies.`,
+        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nProvide a deep, constructive analysis. Since the user selected the "${category}" category, ensure your clarifying questions are NOT generalized. They MUST be highly targeted at identifying critical technical omissions, design constraints, architecture, tech stack, or user experience details specific to ${category}. Provide 5 to 10 of these specific questions, and include suggestive options for quick user replies.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -108,7 +108,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
             },
             clarifyingQuestions: {
               type: Type.ARRAY,
-              description: "3-4 highly relevant clarifying questions to help the user specify crucial details.",
+              description: `5 to 10 highly relevant and specific clarifying questions targeting missing parameters for ${category}.`,
               items: {
                 type: Type.OBJECT,
                 properties: {

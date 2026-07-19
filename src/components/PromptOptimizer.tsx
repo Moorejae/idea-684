@@ -22,6 +22,7 @@ export default function PromptOptimizer({
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [promptCategory, setPromptCategory] = useState<string>("Basic/General");
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
   
@@ -55,6 +56,7 @@ export default function PromptOptimizer({
   const handleReset = () => {
     setStep(1);
     setAnalysis(null);
+    setPromptCategory("Basic/General");
     setSelectedOptions({});
     setCustomAnswers({});
     setFinalResult(null);
@@ -76,7 +78,7 @@ export default function PromptOptimizer({
       const res = await fetch(`${API_BASE}/api/analyze-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: initialPrompt })
+        body: JSON.stringify({ prompt: initialPrompt, category: promptCategory })
       });
 
       if (!res.ok) {
@@ -348,11 +350,27 @@ export default function PromptOptimizer({
                 />
               </div>
 
-              <div className="mt-5 flex justify-end">
+              <div className="mt-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-t border-white/5 pt-5">
+                <div className="flex-1 w-full max-w-xs space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">Prompt Category</label>
+                  <select 
+                    value={promptCategory}
+                    onChange={(e) => setPromptCategory(e.target.value)}
+                    className="w-full bg-[#16161D] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="Basic/General">Basic / General Purpose</option>
+                    <option value="Full Stack Development">Full Stack Development</option>
+                    <option value="Web App / Website">Web App / Website</option>
+                    <option value="UI Build / Visual Design">UI Build / Visual Design</option>
+                    <option value="Data Analysis">Data Analysis</option>
+                    <option value="Writing / Content Creation">Writing / Content Creation</option>
+                  </select>
+                </div>
+                
                 <button
                   onClick={handleAnalyze}
                   disabled={!initialPrompt.trim() || isAnalyzing}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-55 disabled:cursor-not-allowed group"
+                  className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs uppercase tracking-widest rounded-xl cursor-pointer shadow-[0_4px_12px_rgba(79,70,229,0.2)] transition-all disabled:opacity-55 disabled:cursor-not-allowed group"
                 >
                   {isAnalyzing ? (
                     <>
