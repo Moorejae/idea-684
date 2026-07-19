@@ -144,7 +144,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
 app.post("/api/regenerate-prompt", async (req, res) => {
   if (!checkApiKey(res)) return;
 
-  const { originalPrompt, answers, style } = req.body;
+  const { originalPrompt, answers, style, eyenoBlueprint } = req.body;
   if (!originalPrompt || !style) {
     res.status(400).json({ error: "Missing originalPrompt or style in request body." });
     return;
@@ -194,8 +194,19 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   1. The user's original rough draft.
   2. The precise answers they provided to the clarifying questions.
   3. The specific prompting style requested.
+  ${eyenoBlueprint ? "4. The User's Cognitive Architecture Blueprint (Eyeno)." : ""}
   
   ${styleDescription}
+
+  ${eyenoBlueprint ? `
+  =========================================
+  COGNITIVE ARCHITECTURE BLUEPRINT (EYENO)
+  =========================================
+  This is the blueprint of how the user thinks and builds. You MUST use this as the ultimate guide to shape the logic, architecture, and constraints of the final prompt. Enforce these mental models strictly:
+  """
+  ${eyenoBlueprint}
+  """
+  ` : ""}
   
   Make the resulting prompt extremely professional. It should be written from the perspective of an expert user instructing an AI system. It should include clear sections, variables, and strict rules.
   `;
@@ -356,53 +367,6 @@ app.post("/api/simulate-prompt", async (req, res) => {
   }
 });
 
-// 4. Symbiotic Merge Endpoint
-app.post("/api/merge-eyeno", async (req, res) => {
-  if (!checkApiKey(res)) return;
-
-  const { mainPrompt, eyenoPrompt } = req.body;
-  if (!mainPrompt || !eyenoPrompt) {
-    res.status(400).json({ error: "Both mainPrompt and eyenoPrompt are required." });
-    return;
-  }
-
-  try {
-    const systemPrompt = `You are the World's Premier Prompt Architect. 
-Your task is to merge two highly-engineered prompts into ONE ultimate, unified masterpiece prompt.
-
-PROMPT A (The User's Core Intent):
-"""
-${mainPrompt}
-"""
-
-PROMPT B (Eyeno's Support Perspective - derived from internal knowledge):
-"""
-${eyenoPrompt}
-"""
-
-Instructions:
-1. Identify the core goal of Prompt A.
-2. Identify the unique insights, structures, and knowledge embedded in Prompt B.
-3. Seamlessly weave the unique knowledge from B into the structural framework of A.
-4. Output ONLY the final, merged, highly-professional prompt without any introductory or concluding remarks. Make it cohesive.`;
-
-    const response = await getAI().models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { text: systemPrompt }
-      ],
-      config: {
-        temperature: 0.5
-      }
-    });
-
-    const mergedPrompt = response.text || "";
-    res.json({ mergedPrompt });
-  } catch (err: any) {
-    console.error("Merge API Error:", err);
-    res.status(500).json({ error: "Failed to merge prompt: " + err.message });
-  }
-});
 
 // 5. Second Brain Endpoints (Obsidian Graph DB)
 import { createObsidianNote, getAllObsidianNotes } from "./github-db.js";

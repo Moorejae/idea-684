@@ -43,7 +43,7 @@ export default function PromptOptimizer({
 
   // Brain Context (Eyeno)
   const [brainContext, setBrainContext] = useState<string | null>(null);
-  const [isMerging, setIsMerging] = useState<boolean>(false);
+  const [useEyenoGuide, setUseEyenoGuide] = useState<boolean>(true);
 
   // UI state
   const [apiError, setApiError] = useState<string | null>(null);
@@ -133,7 +133,8 @@ export default function PromptOptimizer({
         body: JSON.stringify({
           originalPrompt: initialPrompt,
           answers: compiledAnswers,
-          style: selectedStyle
+          style: selectedStyle,
+          eyenoBlueprint: useEyenoGuide ? brainContext : null
         })
       });
 
@@ -193,40 +194,6 @@ export default function PromptOptimizer({
     }
   };
 
-  // Step 3.5: Merge Eyeno Perspective
-  const handleMerge = async () => {
-    if (!finalResult?.refinedPrompt || !brainContext) return;
-    setIsMerging(true);
-    setApiError(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/merge-eyeno`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mainPrompt: finalResult.refinedPrompt,
-          eyenoPrompt: brainContext
-        })
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to merge with Eyeno.");
-      }
-
-      const data = await res.json();
-      setFinalResult({
-        ...finalResult,
-        refinedPrompt: data.mergedPrompt,
-        explanation: "Merged Eyeno's knowledge seamlessly into the masterpiece framework.",
-        keyAdditions: [...finalResult.keyAdditions, "Eyeno Insights Integrated"]
-      });
-      setBrainContext("Eyeno's perspective has been successfully fused into the Main Masterpiece Prompt!");
-    } catch (err: any) {
-      setApiError("Server Not Connecting (Merge Failed)");
-    } finally {
-      setIsMerging(false);
-    }
-  };
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -564,6 +531,28 @@ export default function PromptOptimizer({
                           </div>
                         </div>
 
+                        {/* Optional Eyeno Guide Toggle */}
+                        {brainContext && (
+                          <div className="border border-emerald-500/30 bg-emerald-950/20 rounded-xl p-4 flex items-center justify-between gap-4 mt-2">
+                            <div className="flex items-center gap-3">
+                              <BrainCircuit className="w-5 h-5 text-emerald-400" />
+                              <div>
+                                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Guide with Eyeno (Second Brain)</h4>
+                                <p className="text-[10px] text-emerald-300/70 mt-0.5">Inject your cognitive mental models into the generated prompt.</p>
+                              </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input 
+                                type="checkbox" 
+                                className="sr-only peer" 
+                                checked={useEyenoGuide}
+                                onChange={(e) => setUseEyenoGuide(e.target.checked)}
+                              />
+                              <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                          </div>
+                        )}
+
                         <button
                           onClick={handleSynthesize}
                           disabled={isRegenerating}
@@ -725,6 +714,15 @@ export default function PromptOptimizer({
               <p className="text-xs text-slate-300 leading-relaxed mb-4">
                 {finalResult.explanation}
               </p>
+
+              {brainContext && useEyenoGuide && (
+                <div className="mb-5 inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+                  <BrainCircuit className="w-4 h-4 text-emerald-400" />
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                    Guided by Eyeno Cognitive Architecture
+                  </span>
+                </div>
+              )}
 
               <div>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2.5 font-mono">Key Architectural Upgrades Added</span>
