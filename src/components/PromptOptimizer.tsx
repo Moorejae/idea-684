@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Sparkles, Terminal, CheckCircle2, AlertCircle, ArrowRight, Copy, RotateCcw,
   Play, Check, Loader2, HelpCircle, Award, ListChecks, HelpCircle as QuestionIcon,
-  ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2, BrainCircuit
+  ChevronRight, Save, Layout, ShieldCheck, ChevronDown, CheckSquare, Settings2, BrainCircuit,
+  Mic, MicOff
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, ClarifyingQuestion, SavedPrompt } from "../types";
@@ -50,6 +51,69 @@ export default function PromptOptimizer({
   const [apiError, setApiError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
+
+  // Audio Recording State
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Toggle Recording
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          setIsTranscribing(true);
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64AudioMessage = reader.result as string;
+            
+            try {
+              const res = await fetch(`${API_BASE}/api/transcribe`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ audioBase64: base64AudioMessage })
+              });
+
+              if (!res.ok) throw new Error("Transcription failed");
+              
+              const data = await res.json();
+              setInitialPrompt(prev => {
+                const sep = prev.trim().length > 0 ? "\\n\\n" : "";
+                return prev + sep + data.transcription;
+              });
+            } catch (err: any) {
+              setApiError("Failed to transcribe audio: " + err.message);
+            } finally {
+              setIsTranscribing(false);
+              stream.getTracks().forEach(track => track.stop());
+            }
+          };
+        };
+
+        mediaRecorder.start();
+        setIsRecording(true);
+      } catch (err: any) {
+        setApiError("Microphone access denied: " + err.message);
+      }
+    }
+  };
 
   // Reset helper
   const handleReset = () => {
@@ -302,6 +366,27 @@ export default function PromptOptimizer({
                   rows={8}
                   className="w-full bg-white/[0.02] border border-white/10 p-5 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 outline-none transition-all font-mono text-sm leading-relaxed text-indigo-100 placeholder-slate-500"
                 />
+                
+                <button
+                  onClick={toggleRecording}
+                  disabled={isTranscribing}
+                  className={`absolute bottom-4 right-4 p-3 rounded-full transition-all flex items-center justify-center ${
+                    isRecording 
+                      ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.5)]" 
+                      : isTranscribing
+                        ? "bg-indigo-500/50 text-white cursor-not-allowed"
+                        : "bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400"
+                  }`}
+                  title={isRecording ? "Stop Recording" : "Start Voice Recording"}
+                >
+                  {isTranscribing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : isRecording ? (
+                    <MicOff className="w-5 h-5" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </button>
               </div>
 
               <div className="mt-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-t border-white/5 pt-5">

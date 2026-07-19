@@ -11,7 +11,7 @@ const app = express();
 app.use(cors());
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // ── DIAGNOSTIC: log key status at startup so Render logs show the truth ──
 const _startupKey = process.env.GEMINI_API_KEY;
@@ -367,6 +367,35 @@ app.post("/api/simulate-prompt", async (req, res) => {
   }
 });
 
+// 4. Audio Transcription Endpoint
+app.post("/api/transcribe", async (req, res) => {
+  if (!checkApiKey(res)) return;
+
+  const { audioBase64 } = req.body;
+  if (!audioBase64) {
+    res.status(400).json({ error: "No audio data provided." });
+    return;
+  }
+
+  try {
+    // Strip the data URL prefix if it exists (e.g., "data:audio/webm;base64,...")
+    const base64Data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
+
+    const response = await getAI().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { text: "Transcribe the following audio accurately. Reply ONLY with the transcribed text. Do not add any introductory or concluding remarks. If it's completely silent or unintelligible, just reply with '[Inaudible]'" },
+        { inlineData: { mimeType: "audio/webm", data: base64Data } }
+      ]
+    });
+
+    const transcription = response.text || "";
+    res.json({ transcription: transcription.trim() });
+  } catch (err: any) {
+    console.error("Transcription API Error:", err);
+    res.status(500).json({ error: "Failed to transcribe audio: " + err.message });
+  }
+});
 
 // 5. Second Brain Endpoints (Obsidian Graph DB)
 import { createObsidianNote, getAllObsidianNotes } from "./github-db.js";
