@@ -13,20 +13,23 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Initialize Gemini SDK safely
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({
-  apiKey: apiKey || "MOCK_KEY",
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+// ── DIAGNOSTIC: log key status at startup so Render logs show the truth ──
+const _startupKey = process.env.GEMINI_API_KEY;
+console.log("[STARTUP] GEMINI_API_KEY loaded:", _startupKey ? `YES (${_startupKey.slice(0, 8)}...)` : "NO — KEY IS MISSING");
 
-// Helper to ensure Gemini API Key exists
+// Initialize Gemini SDK — reads key fresh on every instantiation
+function getAI() {
+  const key = process.env.GEMINI_API_KEY || "MOCK_KEY";
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+  });
+}
+
+// Helper to ensure Gemini API Key exists — reads LIVE from process.env
 function checkApiKey(res: express.Response) {
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key === "MY_GEMINI_API_KEY" || key.trim() === "") {
     res.status(500).json({
       error: "Gemini API key is missing. Please configure it in Settings > Secrets."
     });
@@ -62,7 +65,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
       
@@ -198,7 +201,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   `;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `Generate a fully refined, final, optimized prompt.
       
@@ -260,7 +263,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
 
   try {
     // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
-    const response = await ai.models.generateContent({
+    const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: [
         { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
@@ -280,7 +283,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
     const simulatedOutput = response.text || "No output generated.";
 
     // Now, run a secondary quick call to evaluate why this prompt worked so well!
-    const evaluationResponse = await ai.models.generateContent({
+    const evaluationResponse = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
       
@@ -337,7 +340,7 @@ Instructions:
 3. Seamlessly weave the unique knowledge from B into the structural framework of A.
 4. Output ONLY the final, merged, highly-professional prompt without any introductory or concluding remarks. Make it cohesive.`;
 
-    const response = await ai.models.generateContent({
+    const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: [
         { text: systemPrompt }
@@ -408,7 +411,7 @@ app.post("/api/brain-ingest", async (req, res) => {
 
   try {
     // 1. Distill raw data using Gemini into Obsidian Markdown
-    const response = await ai.models.generateContent({
+    const response = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `You are the AI Brain's Distillation Engine. Extract the fundamental facts, core principles, and useful knowledge from the raw text.
 
