@@ -19,41 +19,66 @@ export default function PromptOptimizer({
   setInitialPrompt, 
   onSavePrompt 
 }: PromptOptimizerProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Load state helper
+  const loadState = (key: string, defaultVal: any) => {
+    try {
+      const stored = localStorage.getItem(`po_${key}`);
+      return stored ? JSON.parse(stored) : defaultVal;
+    } catch { return defaultVal; }
+  };
+
+  const [step, setStep] = useState<1 | 2 | 3>(() => loadState("step", 1));
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [promptCategory, setPromptCategory] = useState<string>("Basic/General");
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(() => loadState("analysis", null));
+  const [promptCategory, setPromptCategory] = useState<string>(() => loadState("promptCategory", "Basic/General"));
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
   
   // Q&A answers
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
-  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
-  const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>('standard');
+  const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>(() => loadState("selectedOptions", {}));
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>(() => loadState("customAnswers", {}));
+  const [selectedStyle, setSelectedStyle] = useState<'standard' | 'xml' | 'persona' | 'sequential'>(() => loadState("selectedStyle", 'standard'));
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
   const [finalResult, setFinalResult] = useState<{
     refinedPrompt: string;
     explanation: string;
     keyAdditions: string[];
-  } | null>(null);
+  } | null>(() => loadState("finalResult", null));
 
   // Simulation state
-  const [testInput, setTestInput] = useState<string>("");
+  const [testInput, setTestInput] = useState<string>(() => loadState("testInput", ""));
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const [simulatedOutput, setSimulatedOutput] = useState<string>("");
-  const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>("");
+  const [simulatedOutput, setSimulatedOutput] = useState<string>(() => loadState("simulatedOutput", ""));
+  const [simulatedAnalysis, setSimulatedAnalysis] = useState<string>(() => loadState("simulatedAnalysis", ""));
 
   // Brain Context (Eyeno)
-  const [brainContext, setBrainContext] = useState<string | null>(null);
+  const [brainContext, setBrainContext] = useState<string | null>(() => loadState("brainContext", null));
   const [isMerging, setIsMerging] = useState<boolean>(false);
 
   // UI state
   const [apiError, setApiError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(() => loadState("activeQuestionIndex", 0));
+
+  // Sync state to localStorage
+  useEffect(() => {
+    localStorage.setItem("po_step", JSON.stringify(step));
+    localStorage.setItem("po_analysis", JSON.stringify(analysis));
+    localStorage.setItem("po_promptCategory", JSON.stringify(promptCategory));
+    localStorage.setItem("po_selectedOptions", JSON.stringify(selectedOptions));
+    localStorage.setItem("po_customAnswers", JSON.stringify(customAnswers));
+    localStorage.setItem("po_selectedStyle", JSON.stringify(selectedStyle));
+    localStorage.setItem("po_finalResult", JSON.stringify(finalResult));
+    localStorage.setItem("po_testInput", JSON.stringify(testInput));
+    localStorage.setItem("po_simulatedOutput", JSON.stringify(simulatedOutput));
+    localStorage.setItem("po_simulatedAnalysis", JSON.stringify(simulatedAnalysis));
+    localStorage.setItem("po_brainContext", JSON.stringify(brainContext));
+    localStorage.setItem("po_activeQuestionIndex", JSON.stringify(activeQuestionIndex));
+  }, [step, analysis, promptCategory, selectedOptions, customAnswers, selectedStyle, finalResult, testInput, simulatedOutput, simulatedAnalysis, brainContext, activeQuestionIndex]);
 
   // Reset helper
   const handleReset = () => {
+    setInitialPrompt(""); // Clear draft
     setStep(1);
     setAnalysis(null);
     setPromptCategory("Basic/General");
@@ -66,6 +91,9 @@ export default function PromptOptimizer({
     setApiError(null);
     setActiveQuestionIndex(0);
     setBrainContext(null);
+    
+    // Clear storage keys
+    ["step", "analysis", "promptCategory", "selectedOptions", "customAnswers", "selectedStyle", "finalResult", "testInput", "simulatedOutput", "simulatedAnalysis", "brainContext", "activeQuestionIndex"].forEach(k => localStorage.removeItem(`po_${k}`));
   };
 
   // Step 1: Submit draft for analysis

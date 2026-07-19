@@ -7,10 +7,35 @@ import BrainVault from "./components/BrainVault";
 import { SavedPrompt } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"optimizer" | "guidebook" | "saved" | "brain">("optimizer");
-  const [initialPrompt, setInitialPrompt] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<"optimizer" | "guidebook" | "saved" | "brain">(() => {
+    return (localStorage.getItem("prompt_architect_tab") as any) || "optimizer";
+  });
+  const [initialPrompt, setInitialPrompt] = useState<string>(() => {
+    return localStorage.getItem("prompt_architect_draft") || "";
+  });
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Save basic state to localStorage
+  useEffect(() => {
+    localStorage.setItem("prompt_architect_tab", activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    localStorage.setItem("prompt_architect_draft", initialPrompt);
+  }, [initialPrompt]);
+
+  // Warn on exit
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (initialPrompt.trim().length > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [initialPrompt]);
 
   // Load saved prompts from localStorage on mount
   useEffect(() => {
