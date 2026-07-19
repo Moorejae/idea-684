@@ -319,12 +319,9 @@ export default function PromptOptimizer({
       </div>
 
       {apiError && (
-        <div className="bg-rose-500/5 border border-rose-500/20 text-rose-400 p-4 rounded-xl flex items-start gap-3 text-sm animate-fade-in">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold">Workspace Warning: </span>
-            {apiError}
-          </div>
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-2 rounded-lg flex items-center gap-2 text-xs font-medium animate-fade-in w-fit mb-6">
+          <AlertCircle className="w-4 h-4" />
+          <span>Connection lost</span>
         </div>
       )}
 
