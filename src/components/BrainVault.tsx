@@ -1,41 +1,45 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BrainCircuit, ShieldCheck, Network, Database } from "lucide-react";
 import { motion } from "motion/react";
+import ForceGraph2D from "react-force-graph-2d";
 
 // Generate mock node positions for the Obsidian-style graph
 const generateNodes = (count: number) => {
   return Array.from({ length: count }).map((_, i) => ({
-    id: i,
-    x: 10 + Math.random() * 80, // percentage 10-90
-    y: 10 + Math.random() * 80, // percentage 10-90
-    size: Math.random() * 8 + 4, // 4-12px
+    id: `n${i}`,
+    val: Math.random() * 2 + 1, // Node size scaling
     color: i === 0 ? "#10B981" : i % 4 === 0 ? "#8B5CF6" : i % 3 === 0 ? "#F59E0B" : "#3B82F6",
+    name: i === 0 ? "Core Engine" : i % 4 === 0 ? "Mental Model" : i % 3 === 0 ? "Domain Logic" : "Constraint"
   }));
 };
 
-const MOCK_NODES = generateNodes(30);
+const MOCK_NODES = generateNodes(40);
 const MOCK_EDGES = MOCK_NODES.map((n, i) => {
   const target1 = MOCK_NODES[Math.floor(Math.random() * MOCK_NODES.length)];
   const target2 = MOCK_NODES[Math.floor(Math.random() * MOCK_NODES.length)];
   return [
-    { id: `e${i}-1`, source: n, target: target1 },
-    { id: `e${i}-2`, source: n, target: target2 }
+    { source: n.id, target: target1.id },
+    { source: n.id, target: target2.id }
   ];
 }).flat();
 
 export default function BrainVault() {
-  const [nodes, setNodes] = useState(MOCK_NODES);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 400 });
 
-  // Pulse animation effect
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNodes(prev => prev.map(n => ({
-        ...n,
-        x: n.x + (Math.random() * 2 - 1),
-        y: n.y + (Math.random() * 2 - 1)
-      })));
-    }, 3000);
-    return () => clearInterval(interval);
+    if (containerRef.current) {
+      setDimensions({ width: containerRef.current.clientWidth, height: 400 });
+    }
+    
+    const handleResize = () => {
+      if (containerRef.current) {
+        setDimensions({ width: containerRef.current.clientWidth, height: 400 });
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   return (
@@ -51,49 +55,31 @@ export default function BrainVault() {
           </div>
         </div>
 
-        <div className="mt-8 border border-white/5 rounded-xl bg-[#08080A] relative overflow-hidden h-[400px]">
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/50 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
+        <div ref={containerRef} className="mt-8 border border-white/5 rounded-xl bg-[#08080A] relative overflow-hidden h-[400px]">
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/50 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md cursor-default">
             <Network className="w-4 h-4 text-emerald-400" />
-            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Semantic Knowledge Graph</span>
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Semantic Knowledge Graph (Interactive)</span>
           </div>
 
-          <svg className="absolute inset-0 w-full h-full">
-            {/* Edges */}
-            {MOCK_EDGES.map(edge => (
-              <motion.line
-                key={edge.id}
-                x1={`${edge.source.x}%`}
-                y1={`${edge.source.y}%`}
-                x2={`${edge.target.x}%`}
-                y2={`${edge.target.y}%`}
-                stroke="rgba(255,255,255,0.05)"
-                strokeWidth={1}
-                initial={{ pathLength: 0, opacity: 0 }}
-                animate={{ pathLength: 1, opacity: 1 }}
-                transition={{ duration: 2, ease: "easeInOut" }}
+          <div className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing">
+            {dimensions.width > 0 && (
+              <ForceGraph2D
+                graphData={{ nodes: MOCK_NODES, links: MOCK_EDGES }}
+                width={dimensions.width}
+                height={dimensions.height}
+                nodeRelSize={6}
+                nodeColor={node => node.color}
+                nodeLabel={node => node.name}
+                linkColor={() => "rgba(255,255,255,0.05)"}
+                backgroundColor="#08080A"
+                d3VelocityDecay={0.3}
+                enableNodeDrag={true}
+                enableZoomPanInteraction={true}
               />
-            ))}
-
-            {/* Nodes */}
-            {nodes.map(node => (
-              <motion.circle
-                key={node.id}
-                cx={`${node.x}%`}
-                cy={`${node.y}%`}
-                r={node.size}
-                fill={node.color}
-                className="cursor-pointer"
-                whileHover={{ scale: 1.5, filter: "brightness(1.5)" }}
-                animate={{ 
-                  cx: [`${node.x}%`, `${node.x + (Math.random() * 2 - 1)}%`],
-                  cy: [`${node.y}%`, `${node.y + (Math.random() * 2 - 1)}%`]
-                }}
-                transition={{ duration: 3, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
-              />
-            ))}
-          </svg>
+            )}
+          </div>
           
-          <div className="absolute bottom-4 right-4 z-10 flex gap-2">
+          <div className="absolute bottom-4 right-4 z-10 flex gap-2 cursor-default">
             {[
               { label: "Core Prompts", color: "bg-emerald-500" },
               { label: "Mental Models", color: "bg-purple-500" },
