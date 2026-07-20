@@ -133,7 +133,26 @@ app.post("/api/analyze-prompt", async (req, res) => {
     let jsonText = response.text || "{}";
     jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsedResult = JSON.parse(jsonText);
-    res.json(parsedResult);
+
+    // Normalize analysis response — ensure all array fields always exist
+    const normalizedAnalysis = {
+      refinedPrompt: typeof parsedResult.refinedPrompt === "string" ? parsedResult.refinedPrompt : "",
+      evaluation: Array.isArray(parsedResult.evaluation)
+        ? parsedResult.evaluation.filter((e: any) => e && typeof e.criteria === "string")
+        : [],
+      strengths: Array.isArray(parsedResult.strengths)
+        ? parsedResult.strengths.filter((s: any) => typeof s === "string")
+        : [],
+      gaps: Array.isArray(parsedResult.gaps)
+        ? parsedResult.gaps.filter((g: any) => typeof g === "string")
+        : [],
+      clarifyingQuestions: Array.isArray(parsedResult.clarifyingQuestions)
+        ? parsedResult.clarifyingQuestions.filter((q: any) => q && typeof q.id === "string" && typeof q.question === "string")
+            .map((q: any) => ({ ...q, options: Array.isArray(q.options) ? q.options : [] }))
+        : []
+    };
+
+    res.json(normalizedAnalysis);
   } catch (err: any) {
     console.error("Analysis API Error:", err);
     res.status(500).json({ error: "Failed to analyze prompt: " + err.message });
@@ -253,7 +272,22 @@ app.post("/api/regenerate-prompt", async (req, res) => {
     let jsonText = response.text || "{}";
     jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsedResult = JSON.parse(jsonText);
-    res.json(parsedResult);
+
+    // Server-side normalization: NEVER trust the LLM to send a perfectly shaped response.
+    // Guarantee all required fields are present with correct types before the client ever sees it.
+    const normalizedResult = {
+      refinedPrompt: typeof parsedResult.refinedPrompt === "string" && parsedResult.refinedPrompt.trim()
+        ? parsedResult.refinedPrompt.trim()
+        : "[Error: The AI did not return a refined prompt. Please try again.]",
+      explanation: typeof parsedResult.explanation === "string" && parsedResult.explanation.trim()
+        ? parsedResult.explanation.trim()
+        : "Prompt refined successfully.",
+      keyAdditions: Array.isArray(parsedResult.keyAdditions)
+        ? parsedResult.keyAdditions.filter((item: any) => typeof item === "string")
+        : []
+    };
+
+    res.json(normalizedResult);
 
     // ==========================================
     // THE CONTINUOUS LEARNING LOOP (BACKGROUND)
