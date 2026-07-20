@@ -47,9 +47,10 @@ async function generateContentWithRotation(payload: any): Promise<any> {
     } catch (error: any) {
       const isQuota = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED");
       const isInvalidKey = error?.status === 400 || error?.status === 403 || error?.message?.includes("API_KEY_INVALID") || error?.message?.includes("API key not valid");
+      const isUnavailable = error?.status === 503 || error?.status === 500 || error?.message?.includes("503") || error?.message?.includes("high demand") || error?.message?.includes("UNAVAILABLE");
 
-      if (isQuota || isInvalidKey) {
-        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : 'Invalid/Bad Key'}). Rotating...`);
+      if (isQuota || isInvalidKey || isUnavailable) {
+        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : isUnavailable ? 'High Demand / 503' : 'Invalid/Bad Key'}). Rotating...`);
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
         attempts++;
       } else {
