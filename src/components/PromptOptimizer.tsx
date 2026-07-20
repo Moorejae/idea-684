@@ -787,21 +787,9 @@ export default function PromptOptimizer({
                     </p>
                   )}
                 </div>
-                <div className="border-t border-emerald-500/20 pt-4 mt-6 flex flex-col gap-3">
-                  {brainContext && !brainContext.includes("successfully fused") && !brainContext.includes("Eyeno is offline") && !brainContext.includes("No highly relevant") ? (
-                    <button
-                      onClick={handleMerge}
-                      disabled={isMerging}
-                      className="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-300 font-semibold text-xs rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2"
-                    >
-                      {isMerging ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
-                      {isMerging ? "Fusing Perspectives..." : "Merge with Eyeno"}
-                    </button>
-                  ) : null}
-                  <div>
-                    <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono block">Status: Symbiotic Mode</span>
-                    <p className="text-[10px] text-emerald-400/60 leading-tight mt-1">If Eyeno contributes an idea, you can forcefully fuse it into the Main Prompt.</p>
-                  </div>
+                <div className="border-t border-emerald-500/20 pt-4 mt-6">
+                  <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider font-mono block">Status: Symbiotic Mode</span>
+                  <p className="text-[10px] text-emerald-400/60 leading-tight mt-1">Eyeno's mental models were used to shape and guide this prompt during synthesis.</p>
                 </div>
               </div>
 
