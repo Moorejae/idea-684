@@ -45,11 +45,15 @@ async function generateContentWithRotation(payload: any): Promise<any> {
     try {
       return await ai.models.generateContent(payload);
     } catch (error: any) {
-      if (error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
-        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} hit 429 quota limit. Rotating to next key...`);
+      const isQuota = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED");
+      const isInvalidKey = error?.status === 400 || error?.status === 403 || error?.message?.includes("API_KEY_INVALID") || error?.message?.includes("API key not valid");
+
+      if (isQuota || isInvalidKey) {
+        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : 'Invalid/Bad Key'}). Rotating...`);
         currentKeyIndex = (currentKeyIndex + 1) % keys.length;
         attempts++;
       } else {
+        console.error(`[API FATAL] Non-recoverable error on key index ${currentKeyIndex}:`, error?.message);
         throw error;
       }
     }
