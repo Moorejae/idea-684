@@ -843,7 +843,7 @@ export default function PromptOptimizer({
               <div>
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2.5 font-mono">Key Architectural Upgrades Added</span>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {finalResult.keyAdditions.map((add, index) => (
+                  {(finalResult.keyAdditions || []).map((add, index) => (
                     <div key={index} className="flex items-start gap-2.5 p-2.5 rounded-lg bg-white/[0.02] border border-white/5 text-xs text-slate-300">
                       <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
                       <span>{add}</span>
