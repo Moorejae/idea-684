@@ -66,7 +66,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
 
   try {
     const response = await getAI().models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemma-2-27b-it",
       contents: `Analyze this rough prompt draft specifically for the category: "${category}". Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 5 to 10 highly specific clarifying questions to gather missing parameters required for a professional ${category} build.
       
       User's Rough Prompt:
@@ -232,7 +232,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
 
   try {
     const response = await getAI().models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemma-2-27b-it",
       contents: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
@@ -324,7 +324,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
     // Previously sequential (2x Gemini calls back-to-back), now concurrent
     const [simulateResponse, evaluationResponse] = await Promise.all([
       ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemma-2-27b-it",
         contents: [
           { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
@@ -338,7 +338,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
         config: { temperature: 0.7 }
       }),
       ai.models.generateContent({
-        model: "gemini-2.0-flash", // Faster model for evaluation \u2014 doesn't need 2.5
+        model: "gemma-2-27b-it", // Faster model for evaluation \u2014 doesn't need 2.5
         contents: `You are a prompt validator. Review this engineered prompt and test input. Explain in under 120 words why this prompt is well-structured, what design elements worked well, and one small improvement the user could consider.
       
       Prompt: ${prompt}
@@ -365,7 +365,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
       try {
         const ai = getAI();
         const distillRes = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
+          model: "gemma-2-27b-it",
           contents: `You are the AI Brain's Distillation Engine. We just engineered and VALIDATED a highly optimized prompt.
           Extract the core architectural patterns, constraints, and mental models from BOTH the prompt AND its real-world test output.
           
@@ -426,7 +426,7 @@ app.post("/api/transcribe", async (req, res) => {
     const base64Data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
 
     const response = await getAI().models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemma-2-27b-it",
       contents: [
         { text: "Transcribe the following audio accurately. Reply ONLY with the transcribed text. Do not add any introductory or concluding remarks. If it's completely silent or unintelligible, just reply with '[Inaudible]'" },
         { inlineData: { mimeType: "audio/webm", data: base64Data } }
@@ -495,7 +495,7 @@ app.post("/api/brain-ingest", async (req, res) => {
   try {
     // 1. Distill raw data using Gemini into Obsidian Markdown
     const response = await getAI().models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemma-2-27b-it",
       contents: `You are the AI Brain's Distillation Engine. Extract the fundamental facts, core principles, and useful knowledge from the raw text.
 
       RULES:
