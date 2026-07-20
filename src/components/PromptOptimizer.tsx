@@ -188,92 +188,107 @@ export default function PromptOptimizer({
     }
   };
 
-  // Step 2: Synthesize → Auto-Test → Move to Step 3
-  // This is the correct full pipeline:
-  //   1. Query AI Brain with full context (original prompt + all compiled answers)
-  //   2. Synthesize refined prompt (with Eyeno blueprint if toggle is ON)
-  //   3. Auto-run simulation using the AI-suggested test input
-  //   4. Land on Step 3 with everything already done
+  // Step 2: Synthesize prompt then show Step 3 immediately
+  // Pipeline:
+  //   1. Brain query + Synthesis fire IN PARALLEL (saves ~5-8s)
+  //   2. Step 3 is shown immediately after synthesis completes (~10-15s total)
+  //   3. Simulation runs as a non-blocking background task (never blocks the UI)
   const handleSynthesize = async () => {
     setIsRegenerating(true);
     setApiError(null);
+    setSimulatedOutput("");
+    setSimulatedAnalysis("");
 
-    // Format compiled answers for both the brain query and synthesis
     const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => ({
       questionId: q.id,
       question: q.question,
       answer: answers[q.id] || "No input provided"
     }));
 
-    // Build the full-context query string for the brain
     const fullContextQuery = `${initialPrompt}\n\n${compiledAnswers.map(a => `${a.question}: ${a.answer}`).join("\n")}`;
 
     try {
-      // STEP 1: Query AI Brain with full context (answers are now compiled)
-      // This gives Eyeno the complete picture — not just the vague initial draft
-      let freshBrainContext: string | null = null;
-      try {
-        const brainRes = await fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(fullContextQuery)}`);
-        const brainData = await brainRes.json();
-        if (brainData.idea && !brainData.idea.includes("No strongly related ideas") && !brainData.idea.includes("No highly relevant")) {
-          freshBrainContext = brainData.idea;
-          setBrainContext(freshBrainContext);
-        }
-      } catch (brainErr) {
-        console.warn("Brain query failed silently — continuing without Eyeno context:", brainErr);
-      }
+      // STEP 1: Fire brain query and synthesis IN PARALLEL — not sequentially
+      // Brain query is best-effort: if it fails or times out, synthesis still continues
+      const brainQueryPromise = fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(fullContextQuery)}`, {
+        signal: AbortSignal.timeout(8000) // 8s max for brain query
+      }).then(r => r.json()).catch(() => null);
 
-      // STEP 2: Synthesize the refined prompt
-      const synthRes = await fetch(`${API_BASE}/api/regenerate-prompt`, {
+      const synthPromise = fetch(`${API_BASE}/api/regenerate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           originalPrompt: initialPrompt,
           answers: compiledAnswers,
           style: selectedStyle,
-          eyenoBlueprint: useEyenoGuide ? freshBrainContext : null
+          eyenoBlueprint: null // Will be updated below if brain query returns in time
         })
       });
 
-      if (!synthRes.ok) {
-        const errorData = await synthRes.json();
+      // Wait for brain query first (it's fast and needed for eyeno blueprint)
+      const brainData = await brainQueryPromise;
+      let freshBrainContext: string | null = null;
+      if (brainData?.idea && !brainData.idea.includes("No strongly related") && !brainData.idea.includes("No highly relevant")) {
+        freshBrainContext = brainData.idea;
+        setBrainContext(freshBrainContext);
+      }
+
+      // If Eyeno toggle is ON and we have context, re-fire synthesis with blueprint
+      // Otherwise use the already-running synthPromise
+      let finalSynthRes;
+      if (useEyenoGuide && freshBrainContext) {
+        // Cancel first fetch isn't possible easily, so just fire the correct one
+        // and let the first one resolve without using its result
+        finalSynthRes = await fetch(`${API_BASE}/api/regenerate-prompt`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            originalPrompt: initialPrompt,
+            answers: compiledAnswers,
+            style: selectedStyle,
+            eyenoBlueprint: freshBrainContext
+          })
+        });
+      } else {
+        finalSynthRes = await synthPromise;
+      }
+
+      if (!finalSynthRes.ok) {
+        const errorData = await finalSynthRes.json();
         throw new Error(errorData.error || "Failed to synthesize prompt.");
       }
 
-      const synthData = await synthRes.json();
+      const synthData = await finalSynthRes.json();
       setFinalResult(synthData);
 
-      // STEP 3: Auto-simulate using the AI-suggested test input
-      // Pre-populate the testInput box with what Gemini suggested
+      // STEP 2: Show Step 3 IMMEDIATELY — don't wait for simulation
+      setStep(3);
+      setIsRegenerating(false);
+
+      // STEP 3: Run simulation in the background — non-blocking
       const autoTestInput = synthData.suggestedTestInput || "Run a realistic demonstration of this prompt.";
       setTestInput(autoTestInput);
       setIsSimulating(true);
 
-      try {
-        const simRes = await fetch(`${API_BASE}/api/simulate-prompt`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: synthData.refinedPrompt,
-            userInput: autoTestInput
-          })
-        });
-
+      fetch(`${API_BASE}/api/simulate-prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: synthData.refinedPrompt,
+          userInput: autoTestInput
+        })
+      }).then(async (simRes) => {
         if (simRes.ok) {
           const simData = await simRes.json();
-          setSimulatedOutput(simData.simulatedOutput);
-          setSimulatedAnalysis(simData.analysis);
-        } else {
-          console.warn("Auto-simulation failed — user can still run it manually.");
+          setSimulatedOutput(simData.simulatedOutput || "");
+          setSimulatedAnalysis(simData.analysis || "");
         }
-      } catch (simErr) {
-        console.warn("Auto-simulation network error — continuing:", simErr);
-      } finally {
+      }).catch((simErr) => {
+        console.warn("Background simulation failed:", simErr);
+      }).finally(() => {
         setIsSimulating(false);
-      }
+      });
 
-      // All done — move to Step 3
-      setStep(3);
     } catch (err: any) {
       console.error(err);
       if (err.message?.includes("Unexpected end of JSON input") || err.message?.includes("Unexpected token <")) {
@@ -281,7 +296,6 @@ export default function PromptOptimizer({
       } else {
         setApiError(err.message || "Failed to synthesize final prompt.");
       }
-    } finally {
       setIsRegenerating(false);
     }
   };

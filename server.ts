@@ -318,11 +318,15 @@ app.post("/api/simulate-prompt", async (req, res) => {
   const testInput = userInput || "Provide a default or empty sample input to demonstrate.";
 
   try {
-    // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
-    const response = await getAI().models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
+    const ai = getAI();
+
+    // Run simulation and evaluation IN PARALLEL with Promise.all
+    // Previously sequential (2x Gemini calls back-to-back), now concurrent
+    const [simulateResponse, evaluationResponse] = await Promise.all([
+      ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
         === ENGINEERED PROMPT START ===
         ${prompt}
@@ -330,31 +334,22 @@ app.post("/api/simulate-prompt", async (req, res) => {
         
         Test Input:
         ${testInput}` }
-      ],
-      config: {
-        temperature: 0.7,
-      }
-    });
+        ],
+        config: { temperature: 0.7 }
+      }),
+      ai.models.generateContent({
+        model: "gemini-2.0-flash", // Faster model for evaluation \u2014 doesn't need 2.5
+        contents: `You are a prompt validator. Review this engineered prompt and test input. Explain in under 120 words why this prompt is well-structured, what design elements worked well, and one small improvement the user could consider.
+      
+      Prompt: ${prompt}
+      Test Input: ${testInput}`,
+        config: {
+          systemInstruction: "You are a friendly, highly constructive prompt engineering validator. Be concise \u2014 under 120 words.",
+        }
+      })
+    ]);
 
-    const simulatedOutput = response.text || "No output generated.";
-
-    // Secondary call: evaluate why this prompt worked
-    const evaluationResponse = await getAI().models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
-      
-      Prompt:
-      ${prompt}
-      
-      Test Input:
-      ${testInput}
-      
-      Output:
-      ${simulatedOutput}`,
-      config: {
-        systemInstruction: "You are a friendly, highly constructive prompt engineering validator. Provide a short, structured evaluation under 150 words.",
-      }
-    });
+    const simulatedOutput = simulateResponse.text || "No output generated.";
 
     res.json({
       simulatedOutput,
