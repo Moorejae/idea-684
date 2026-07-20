@@ -262,9 +262,13 @@ app.post("/api/regenerate-prompt", async (req, res) => {
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "Bulleted list of key additions compiled directly from user answers."
+            },
+            suggestedTestInput: {
+              type: Type.STRING,
+              description: "A realistic, specific test input/scenario the user could run to validate this prompt in the sandbox. Should be context-aware based on what they are building."
             }
           },
-          required: ["refinedPrompt", "explanation", "keyAdditions"]
+          required: ["refinedPrompt", "explanation", "keyAdditions", "suggestedTestInput"]
         }
       }
     });
@@ -284,56 +288,17 @@ app.post("/api/regenerate-prompt", async (req, res) => {
         : "Prompt refined successfully.",
       keyAdditions: Array.isArray(parsedResult.keyAdditions)
         ? parsedResult.keyAdditions.filter((item: any) => typeof item === "string")
-        : []
+        : [],
+      suggestedTestInput: typeof parsedResult.suggestedTestInput === "string" && parsedResult.suggestedTestInput.trim()
+        ? parsedResult.suggestedTestInput.trim()
+        : "Provide a realistic sample input to test this prompt."
     };
 
     res.json(normalizedResult);
+    // NOTE: Learning loop has been moved to /api/simulate-prompt so that the brain
+    // only learns from prompts that have been validated by a real test run.
 
-    // ==========================================
-    // THE CONTINUOUS LEARNING LOOP (BACKGROUND)
-    // ==========================================
-    // Train Eyeno's brain for free without raw files by extracting the core logic 
-    // of this successful prompt and saving it as a node.
-    (async () => {
-      try {
-        const ai = getAI();
-        const distillRes = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: `You are the AI Brain's Distillation Engine. We just engineered a highly optimized prompt.
-          Extract the core architectural patterns, constraints, and mental models from this prompt.
-          
-          RULES:
-          1. Do not summarize the prompt itself. Extract the REUSABLE prompt engineering techniques and domain concepts used.
-          2. Format entirely in Markdown.
-          3. CRITICAL: Wrap core concepts in double brackets like [[This]] to create Obsidian Wikilinks.
-          4. Suggest a short filename at the top: FILENAME: Prompt_Pattern_Name
-          
-          FINAL PROMPT TO LEARN FROM:
-          """
-          ${parsedResult.refinedPrompt}
-          """`,
-          config: { temperature: 0.4 }
-        });
-
-        let distilled = distillRes.text || "";
-        let filename = "Prompt_Pattern_" + Date.now();
-
-        const filenameMatch = distilled.match(/^FILENAME:\s*(.+)/i);
-        if (filenameMatch) {
-          filename = filenameMatch[1].trim();
-          distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
-        }
-
-        distilled += "\n\n---\n**Source:** Auto-Learning Loop (Prompt Architect)\n**Date:** " + new Date().toISOString();
-
-        // Import dynamically to avoid hoisting issues just in case
-        const { createObsidianNote } = await import("./github-db.js");
-        await createObsidianNote(distilled, filename);
-        console.log("[LEARNING LOOP] Successfully trained brain with new node: " + filename);
-      } catch (loopErr) {
-        console.error("[LEARNING LOOP] Failed to ingest prompt:", loopErr);
-      }
-    })();
+  // NOTE: Learning loop removed from here. It now lives in /api/simulate-prompt.
   } catch (err: any) {
     console.error("Regenerate API Error:", err);
     res.status(500).json({ error: "Failed to refine prompt: " + err.message });
@@ -373,7 +338,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
 
     const simulatedOutput = response.text || "No output generated.";
 
-    // Now, run a secondary quick call to evaluate why this prompt worked so well!
+    // Secondary call: evaluate why this prompt worked
     const evaluationResponse = await getAI().models.generateContent({
       model: "gemini-2.5-flash",
       contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
@@ -395,6 +360,56 @@ app.post("/api/simulate-prompt", async (req, res) => {
       simulatedOutput,
       analysis: evaluationResponse.text || "Highly structured layout successfully isolated instructions from variables."
     });
+
+    // ==========================================
+    // THE CONTINUOUS LEARNING LOOP (POST-VALIDATION)
+    // ==========================================
+    // Only trains the AI Brain AFTER the prompt has been validated by a real simulation run.
+    // This ensures quality — we only learn from prompts that have actually been tested and proven.
+    (async () => {
+      try {
+        const ai = getAI();
+        const distillRes = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `You are the AI Brain's Distillation Engine. We just engineered and VALIDATED a highly optimized prompt.
+          Extract the core architectural patterns, constraints, and mental models from BOTH the prompt AND its real-world test output.
+          
+          RULES:
+          1. Do not summarize the prompt. Extract REUSABLE prompt engineering techniques and domain-specific build patterns.
+          2. Format entirely in Markdown.
+          3. CRITICAL: Wrap core concepts in double brackets like [[This]] to create Obsidian Wikilinks.
+          4. Suggest a short filename at the top: FILENAME: Prompt_Pattern_Name
+          
+          VALIDATED PROMPT:
+          """
+          ${prompt}
+          """
+
+          REAL TEST OUTPUT (proof it works):
+          """
+          ${simulatedOutput}
+          """`,
+          config: { temperature: 0.4 }
+        });
+
+        let distilled = distillRes.text || "";
+        let filename = "Validated_Pattern_" + Date.now();
+
+        const filenameMatch = distilled.match(/^FILENAME:\s*(.+)/i);
+        if (filenameMatch) {
+          filename = filenameMatch[1].trim();
+          distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
+        }
+
+        distilled += "\n\n---\n**Source:** Post-Validation Learning Loop (Prompt Architect)\n**Test Input:** " + testInput + "\n**Date:** " + new Date().toISOString();
+
+        const { createObsidianNote } = await import("./github-db.js");
+        await createObsidianNote(distilled, filename);
+        console.log("[LEARNING LOOP] Brain trained with validated pattern: " + filename);
+      } catch (loopErr) {
+        console.error("[LEARNING LOOP] Post-validation training failed:", loopErr);
+      }
+    })();
   } catch (err: any) {
     console.error("Simulation API Error:", err);
     res.status(500).json({ error: "Failed to simulate prompt: " + err.message });

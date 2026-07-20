@@ -35,6 +35,7 @@ export default function PromptOptimizer({
     refinedPrompt: string;
     explanation: string;
     keyAdditions: string[];
+    suggestedTestInput: string;
   } | null>(null);
 
   // Simulation state
@@ -165,16 +166,6 @@ export default function PromptOptimizer({
       const data: AnalysisResult = await res.json();
       setAnalysis(data);
 
-      // Query Second Brain in parallel
-      fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(initialPrompt)}`)
-        .then(r => r.json())
-        .then(d => {
-          if (d.idea && !d.idea.includes("No strongly related ideas")) {
-            setBrainContext(d.idea);
-          }
-        })
-        .catch(e => console.error("Brain query failed:", e));
-
       // Seed initial empty answers
       const initialAnswers: Record<string, string> = {};
       data.clarifyingQuestions.forEach((q) => {
@@ -182,6 +173,9 @@ export default function PromptOptimizer({
       });
       setAnswers(initialAnswers);
       setStep(2);
+      // NOTE: Brain query intentionally removed from here.
+      // It will be re-queried in handleSynthesize using the full context
+      // (original prompt + all compiled answers) for much better relevance.
     } catch (err: any) {
       console.error(err);
       if (err.message?.includes("Unexpected end of JSON input") || err.message?.includes("Unexpected token <")) {
@@ -194,37 +188,91 @@ export default function PromptOptimizer({
     }
   };
 
-  // Step 2: Submit answers and style to synthesize final optimized prompt
+  // Step 2: Synthesize → Auto-Test → Move to Step 3
+  // This is the correct full pipeline:
+  //   1. Query AI Brain with full context (original prompt + all compiled answers)
+  //   2. Synthesize refined prompt (with Eyeno blueprint if toggle is ON)
+  //   3. Auto-run simulation using the AI-suggested test input
+  //   4. Land on Step 3 with everything already done
   const handleSynthesize = async () => {
     setIsRegenerating(true);
     setApiError(null);
 
-    // Format compiled answers
+    // Format compiled answers for both the brain query and synthesis
     const compiledAnswers = (analysis?.clarifyingQuestions || []).map((q) => ({
       questionId: q.id,
       question: q.question,
       answer: answers[q.id] || "No input provided"
     }));
 
+    // Build the full-context query string for the brain
+    const fullContextQuery = `${initialPrompt}\n\n${compiledAnswers.map(a => `${a.question}: ${a.answer}`).join("\n")}`;
+
     try {
-      const res = await fetch(`${API_BASE}/api/regenerate-prompt`, {
+      // STEP 1: Query AI Brain with full context (answers are now compiled)
+      // This gives Eyeno the complete picture — not just the vague initial draft
+      let freshBrainContext: string | null = null;
+      try {
+        const brainRes = await fetch(`${API_BASE}/api/brain-query?query=${encodeURIComponent(fullContextQuery)}`);
+        const brainData = await brainRes.json();
+        if (brainData.idea && !brainData.idea.includes("No strongly related ideas") && !brainData.idea.includes("No highly relevant")) {
+          freshBrainContext = brainData.idea;
+          setBrainContext(freshBrainContext);
+        }
+      } catch (brainErr) {
+        console.warn("Brain query failed silently — continuing without Eyeno context:", brainErr);
+      }
+
+      // STEP 2: Synthesize the refined prompt
+      const synthRes = await fetch(`${API_BASE}/api/regenerate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           originalPrompt: initialPrompt,
           answers: compiledAnswers,
           style: selectedStyle,
-          eyenoBlueprint: useEyenoGuide ? brainContext : null
+          eyenoBlueprint: useEyenoGuide ? freshBrainContext : null
         })
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
+      if (!synthRes.ok) {
+        const errorData = await synthRes.json();
         throw new Error(errorData.error || "Failed to synthesize prompt.");
       }
 
-      const data = await res.json();
-      setFinalResult(data);
+      const synthData = await synthRes.json();
+      setFinalResult(synthData);
+
+      // STEP 3: Auto-simulate using the AI-suggested test input
+      // Pre-populate the testInput box with what Gemini suggested
+      const autoTestInput = synthData.suggestedTestInput || "Run a realistic demonstration of this prompt.";
+      setTestInput(autoTestInput);
+      setIsSimulating(true);
+
+      try {
+        const simRes = await fetch(`${API_BASE}/api/simulate-prompt`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: synthData.refinedPrompt,
+            userInput: autoTestInput
+          })
+        });
+
+        if (simRes.ok) {
+          const simData = await simRes.json();
+          setSimulatedOutput(simData.simulatedOutput);
+          setSimulatedAnalysis(simData.analysis);
+        } else {
+          console.warn("Auto-simulation failed — user can still run it manually.");
+        }
+      } catch (simErr) {
+        console.warn("Auto-simulation network error — continuing:", simErr);
+      } finally {
+        setIsSimulating(false);
+      }
+
+      // All done — move to Step 3
       setStep(3);
     } catch (err: any) {
       console.error(err);
@@ -677,12 +725,15 @@ export default function PromptOptimizer({
                           {isRegenerating ? (
                             <>
                               <Loader2 className="w-4 h-4 animate-spin" />
-                              <span>Compiling Masterpiece Prompt...</span>
+                              {isSimulating 
+                                ? <span>Auto-Testing Prompt...</span>
+                                : <span>Synthesizing with Eyeno...</span>
+                              }
                             </>
                           ) : (
                             <>
                               <Sparkles className="w-4 h-4 animate-pulse" />
-                              <span>Synthesize Final Engineered Prompt</span>
+                              <span>Synthesize, Test & Learn →</span>
                             </>
                           )}
                         </button>
@@ -853,27 +904,32 @@ export default function PromptOptimizer({
               </div>
             </div>
 
-            {/* Prompt testing simulator sandbox (Very important interactive feature) */}
+            {/* Prompt testing simulator sandbox */}
             <div className="bg-[#0D0D10]/50 border border-white/5 rounded-2xl p-6 md:p-8">
-              <div className="flex items-center gap-2 border-b border-white/5 pb-4 mb-5">
-                <Play className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-bold text-white font-sans text-sm md:text-base">
-                  Interactive Prompt Simulator (Sandbox)
-                </h3>
+              <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4 mb-5">
+                <div className="flex items-center gap-2">
+                  <Play className="w-5 h-5 text-indigo-400" />
+                  <h3 className="font-bold text-white font-sans text-sm md:text-base">
+                    Interactive Prompt Simulator (Sandbox)
+                  </h3>
+                </div>
+                {simulatedOutput && (
+                  <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded font-mono font-bold">✓ Auto-Tested</span>
+                )}
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mb-5 max-w-2xl">
-                Test how your newly optimized prompt behaves! Provide any dummy test case input (for example, if you engineered a fitness planner, type 'Suggest a workout routine for an active runner'). We will run it through Gemini using your engineered rules.
+                The prompt was automatically tested below using an AI-suggested test case. You can edit the input and re-run to try any custom scenario.
               </p>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Left: Input parameters */}
                 <div className="lg:col-span-5 flex flex-col gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">Dummy Test Case Input</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">Test Case Input</label>
                     <textarea
                       value={testInput}
                       onChange={(e) => setTestInput(e.target.value)}
-                      placeholder="Type some mock parameters or sample test input for the AI..."
+                      placeholder="Edit the auto-generated test input or write your own..."
                       rows={5}
                       className="w-full bg-white/[0.02] p-4 border border-white/10 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 text-xs font-mono leading-relaxed text-indigo-100 placeholder-slate-500"
                     />
@@ -892,7 +948,7 @@ export default function PromptOptimizer({
                     ) : (
                       <>
                         <Play className="w-4 h-4" />
-                        <span>Run Simulation Test</span>
+                        <span>{simulatedOutput ? "Re-Run Simulation" : "Run Simulation Test"}</span>
                       </>
                     )}
                   </button>
@@ -900,7 +956,13 @@ export default function PromptOptimizer({
 
                 {/* Right: Output sandbox & Evaluation */}
                 <div className="lg:col-span-7 flex flex-col gap-4">
-                  {simulatedOutput ? (
+                  {isSimulating && !simulatedOutput ? (
+                    <div className="h-full border border-dashed border-indigo-500/20 rounded-xl flex flex-col items-center justify-center p-6 text-center">
+                      <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
+                      <span className="text-xs font-semibold text-indigo-400">Running Auto-Simulation...</span>
+                      <p className="text-[10px] max-w-xs mt-1 leading-relaxed text-slate-500">Testing your prompt against a realistic scenario. This also trains the AI Brain.</p>
+                    </div>
+                  ) : simulatedOutput ? (
                     <div className="space-y-4">
                       {/* Response Box */}
                       <div className="bg-slate-950 border border-white/5 rounded-xl p-5 font-sans">
@@ -936,7 +998,7 @@ export default function PromptOptimizer({
                       <Terminal className="w-8 h-8 opacity-40 mb-2 text-indigo-400" />
                       <span className="text-xs font-semibold text-slate-400">Ready for Test Simulation</span>
                       <p className="text-[10px] max-w-xs mt-1 leading-relaxed text-slate-500">
-                        Enter a test input and run the sandbox simulation to see the prompt's instructions enforced in action.
+                        Enter a test input and run the sandbox simulation.
                       </p>
                     </div>
                   )}
