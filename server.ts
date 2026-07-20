@@ -28,38 +28,73 @@ function getApiKeys(): string[] {
 const startupKeys = getApiKeys();
 console.log(`[STARTUP] Loaded ${startupKeys.length} GEMINI API keys from environment.`);
 
+// ── MULTI-MODEL FALLBACK LIST ──
+const FALLBACK_MODELS = [
+  "gemini-2.5-flash",       // 1. User's ideal smart model
+  "gemini-3.5-flash",       // 2. Experimental upgrade
+  "gemini-2.0-flash",       // 3. Modern fast standard
+  "gemini-1.5-pro",         // 4. Deep reasoning standard
+  "gemini-1.5-flash",       // 5. Reliable fast fallback
+  "gemini-3.1-flash-lite",  // 6. High quota fallback
+];
+
 let currentKeyIndex = 0;
+let currentModelIndex = 0;
 
 async function generateContentWithRotation(payload: any): Promise<any> {
   const keys = getApiKeys();
-  let attempts = 0;
-  const maxAttempts = keys.length;
+  let modelAttempts = 0;
 
-  while (attempts < maxAttempts) {
-    const key = keys[currentKeyIndex];
-    const ai = new GoogleGenAI({
-      apiKey: key,
-      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-    });
+  while (modelAttempts < FALLBACK_MODELS.length) {
+    const currentModel = FALLBACK_MODELS[currentModelIndex];
+    // Override the hardcoded payload model with our current rotated model
+    const currentPayload = { ...payload, model: currentModel };
+    
+    let keyAttempts = 0;
 
-    try {
-      return await ai.models.generateContent(payload);
-    } catch (error: any) {
-      const isQuota = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED");
-      const isInvalidKey = error?.status === 400 || error?.status === 403 || error?.message?.includes("API_KEY_INVALID") || error?.message?.includes("API key not valid");
-      const isUnavailable = error?.status === 503 || error?.status === 500 || error?.message?.includes("503") || error?.message?.includes("high demand") || error?.message?.includes("UNAVAILABLE");
+    while (keyAttempts < keys.length) {
+      const key = keys[currentKeyIndex];
+      const ai = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
 
-      if (isQuota || isInvalidKey || isUnavailable) {
-        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : isUnavailable ? 'High Demand / 503' : 'Invalid/Bad Key'}). Rotating...`);
-        currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-        attempts++;
-      } else {
-        console.error(`[API FATAL] Non-recoverable error on key index ${currentKeyIndex}:`, error?.message);
-        throw error;
+      try {
+        return await ai.models.generateContent(currentPayload);
+      } catch (error: any) {
+        const isQuota = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED");
+        const isInvalidKey = error?.status === 400 || error?.status === 403 || error?.message?.includes("API_KEY_INVALID") || error?.message?.includes("API key not valid");
+        const isUnavailable = error?.status === 503 || error?.status === 500 || error?.message?.includes("503") || error?.message?.includes("high demand") || error?.message?.includes("UNAVAILABLE");
+        const isModelNotFound = error?.status === 404 || error?.message?.includes("404") || error?.message?.includes("not found") || error?.message?.includes("not supported") || error?.message?.includes("no longer available");
+
+        if (isModelNotFound) {
+          console.warn(`[MODEL ROTATION] Model '${currentModel}' is 404/Deprecated. Rotating to next model...`);
+          currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
+          modelAttempts++;
+          keyAttempts = 0; // Reset key attempts for the new model
+          break; // Break inner loop to try the new model
+        }
+
+        if (isQuota || isInvalidKey || isUnavailable) {
+          console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : isUnavailable ? 'High Demand / 503' : 'Invalid/Bad Key'}). Rotating key...`);
+          currentKeyIndex = (currentKeyIndex + 1) % keys.length;
+          keyAttempts++;
+        } else {
+          console.error(`[API FATAL] Non-recoverable error on key index ${currentKeyIndex} and model ${currentModel}:`, error?.message);
+          throw error;
+        }
       }
     }
+
+    // If we exhausted all keys for the current model (e.g., all gave 503 High Demand), rotate the model and try again
+    if (keyAttempts >= keys.length && modelAttempts < FALLBACK_MODELS.length) {
+      console.warn(`[MODEL ROTATION] All keys failed for model '${currentModel}'. Rotating to next model as fallback...`);
+      currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
+      modelAttempts++;
+    }
   }
-  throw new Error("All available Gemini API keys have exhausted their quotas (429). Please wait 24 hours or add more keys to GEMINI_API_KEY_POOL.");
+
+  throw new Error("CRITICAL: Exhausted all available API keys AND all fallback models. Pipeline is completely blocked. Please check API limits and model availability.");
 }
 
 // Helper to ensure Gemini API Key exists
