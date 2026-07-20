@@ -511,7 +511,7 @@ export default function PromptOptimizer({
 
                 {/* Scorecards */}
                 <div className="space-y-3.5">
-                  {analysis.evaluation.map((evalItem, index) => {
+                  {(analysis.evaluation || []).map((evalItem, index) => {
                     const isExcellent = evalItem.rating === "excellent";
                     const isGood = evalItem.rating === "good";
                     return (
@@ -526,7 +526,7 @@ export default function PromptOptimizer({
                                 ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
                                 : "bg-rose-500/10 text-rose-400 border-rose-500/20"
                             }`}>
-                            {evalItem.rating.toUpperCase().replace('-', ' ')}
+                            {(evalItem.rating || "").toUpperCase().replace('-', ' ')}
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
@@ -542,7 +542,7 @@ export default function PromptOptimizer({
                   <div>
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2 font-mono">Strengths Detected</span>
                     <ul className="space-y-1.5">
-                      {analysis.strengths.map((str, i) => (
+                      {(analysis.strengths || []).map((str, i) => (
                         <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0" />
                           <span>{str}</span>
@@ -554,7 +554,7 @@ export default function PromptOptimizer({
                   <div>
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2 font-mono">Gaps (Missing Details)</span>
                     <ul className="space-y-1.5">
-                      {analysis.gaps.map((gap, i) => (
+                      {(analysis.gaps || []).map((gap, i) => (
                         <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
                           <AlertCircle className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
                           <span>{gap}</span>

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import PromptOptimizer from "./components/PromptOptimizer";
 import Guidebook from "./components/Guidebook";
 import BrainVault from "./components/BrainVault";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { SavedPrompt } from "./types";
 
 export default function App() {
@@ -167,11 +168,13 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.2 }}
             >
-              <PromptOptimizer 
-                initialPrompt={initialPrompt} 
-                setInitialPrompt={setInitialPrompt}
-                onSavePrompt={handleSavePrompt}
-              />
+              <ErrorBoundary>
+                <PromptOptimizer 
+                  initialPrompt={initialPrompt} 
+                  setInitialPrompt={setInitialPrompt}
+                  onSavePrompt={handleSavePrompt}
+                />
+              </ErrorBoundary>
             </motion.div>
           )}
 
