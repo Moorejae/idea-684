@@ -74,7 +74,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
       ${userPrompt}
       """`,
       config: {
-        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nProvide a deep, constructive analysis. Since the user selected the "${category}" category, ensure your clarifying questions are NOT generalized. They MUST be highly targeted at identifying critical technical omissions, design constraints, architecture, tech stack, or user experience details specific to ${category}. Provide 5 to 10 of these specific questions, and include suggestive options for quick user replies.`,
+        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nYou are a Senior Principal Engineer and elite Prompt Architect. You do NOT ask generic, surface-level questions (e.g., 'Who is the audience?', 'What is the tone?'). Instead, you probe deeply into architecture, edge-cases, specific technical constraints, data schemas, and domain-specific mechanics for "${category}". Before asking questions, use the 'expertReasoning' field to think through the hidden technical complexities the user missed.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -106,6 +106,10 @@ app.post("/api/analyze-prompt", async (req, res) => {
               items: { type: Type.STRING },
               description: "Critical prompt engineering details that are currently missing or ambiguous."
             },
+            expertReasoning: {
+              type: Type.STRING,
+              description: "Chain-of-thought: Act as a Senior Staff Engineer. Think deeply about the hidden technical complexities, edge cases, and missing domain-specific mechanics before formulating your questions. Explain exactly WHY the user's prompt is structurally weak."
+            },
             clarifyingQuestions: {
               type: Type.ARRAY,
               description: `5 to 10 highly relevant and specific clarifying questions targeting missing parameters for ${category}.`,
@@ -125,7 +129,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
               }
             }
           },
-          required: ["refinedPrompt", "evaluation", "strengths", "gaps", "clarifyingQuestions"]
+          required: ["refinedPrompt", "evaluation", "strengths", "gaps", "expertReasoning", "clarifyingQuestions"]
         }
       }
     });
