@@ -13,25 +13,56 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
-// ── DIAGNOSTIC: log key status at startup so Render logs show the truth ──
-const _startupKey = process.env.GEMINI_API_KEY;
-console.log("[STARTUP] GEMINI_API_KEY loaded:", _startupKey ? `YES (${_startupKey.slice(0, 8)}...)` : "NO — KEY IS MISSING");
-
-// Initialize Gemini SDK — reads key fresh on every instantiation
-function getAI() {
-  const key = process.env.GEMINI_API_KEY || "MOCK_KEY";
-  return new GoogleGenAI({
-    apiKey: key,
-    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-  });
+// ── API KEY POOLING & ROTATION LOGIC ──
+function getApiKeys(): string[] {
+  const pool = process.env.GEMINI_API_KEY_POOL;
+  if (pool) {
+    const keys = pool.split(",").map(k => k.trim()).filter(k => k.length > 0);
+    if (keys.length > 0) return keys;
+  }
+  const single = process.env.GEMINI_API_KEY;
+  if (single && single.trim().length > 0) return [single.trim()];
+  return ["MOCK_KEY"];
 }
 
-// Helper to ensure Gemini API Key exists — reads LIVE from process.env
+const startupKeys = getApiKeys();
+console.log(`[STARTUP] Loaded ${startupKeys.length} GEMINI API keys from environment.`);
+
+let currentKeyIndex = 0;
+
+async function generateContentWithRotation(payload: any): Promise<any> {
+  const keys = getApiKeys();
+  let attempts = 0;
+  const maxAttempts = keys.length;
+
+  while (attempts < maxAttempts) {
+    const key = keys[currentKeyIndex];
+    const ai = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+    });
+
+    try {
+      return await ai.models.generateContent(payload);
+    } catch (error: any) {
+      if (error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED")) {
+        console.warn(`[API ROTATION] Key at index ${currentKeyIndex} hit 429 quota limit. Rotating to next key...`);
+        currentKeyIndex = (currentKeyIndex + 1) % keys.length;
+        attempts++;
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error("All available Gemini API keys have exhausted their quotas (429). Please wait 24 hours or add more keys to GEMINI_API_KEY_POOL.");
+}
+
+// Helper to ensure Gemini API Key exists
 function checkApiKey(res: express.Response) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || key === "MY_GEMINI_API_KEY" || key.trim() === "") {
+  const keys = getApiKeys();
+  if (keys[0] === "MOCK_KEY" || keys[0] === "MY_GEMINI_API_KEY") {
     res.status(500).json({
-      error: "Gemini API key is missing. Please configure it in Settings > Secrets."
+      error: "Gemini API key is missing. Please configure GEMINI_API_KEY_POOL or GEMINI_API_KEY in Settings > Secrets."
     });
     return false;
   }
@@ -65,8 +96,8 @@ app.post("/api/analyze-prompt", async (req, res) => {
   }
 
   try {
-    const response = await getAI().models.generateContent({
-      model: "gemini-3.1-flash-lite",
+    const response = await generateContentWithRotation({
+      model: "gemini-2.5-flash",
       contents: `Analyze this rough prompt draft specifically for the category: "${category}". Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 5 to 10 highly specific clarifying questions to gather missing parameters required for a professional ${category} build.
       
       User's Rough Prompt:
@@ -235,8 +266,8 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   `;
 
   try {
-    const response = await getAI().models.generateContent({
-      model: "gemini-3.1-flash-lite",
+    const response = await generateContentWithRotation({
+      model: "gemini-2.5-flash",
       contents: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
@@ -327,8 +358,8 @@ app.post("/api/simulate-prompt", async (req, res) => {
     // Run simulation and evaluation IN PARALLEL with Promise.all
     // Previously sequential (2x Gemini calls back-to-back), now concurrent
     const [simulateResponse, evaluationResponse] = await Promise.all([
-      ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
+      generateContentWithRotation({
+        model: "gemini-2.5-flash",
         contents: [
           { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
@@ -341,8 +372,8 @@ app.post("/api/simulate-prompt", async (req, res) => {
         ],
         config: { temperature: 0.7 }
       }),
-      ai.models.generateContent({
-        model: "gemini-3.1-flash-lite", // Faster model for evaluation \u2014 doesn't need 2.5
+      generateContentWithRotation({
+        model: "gemini-2.5-flash", // Using 2.5-flash for evaluation since we have the quota pool now
         contents: `You are a prompt validator. Review this engineered prompt and test input. Explain in under 120 words why this prompt is well-structured, what design elements worked well, and one small improvement the user could consider.
       
       Prompt: ${prompt}
@@ -367,9 +398,8 @@ app.post("/api/simulate-prompt", async (req, res) => {
     // This ensures quality — we only learn from prompts that have actually been tested and proven.
     (async () => {
       try {
-        const ai = getAI();
-        const distillRes = await ai.models.generateContent({
-          model: "gemini-3.1-flash-lite",
+        const distillRes = await generateContentWithRotation({
+          model: "gemini-2.5-flash",
           contents: `You are the AI Brain's Distillation Engine. We just engineered and VALIDATED a highly optimized prompt.
           Extract the core architectural patterns, constraints, and mental models from BOTH the prompt AND its real-world test output.
           
@@ -429,8 +459,8 @@ app.post("/api/transcribe", async (req, res) => {
     // Strip the data URL prefix if it exists (e.g., "data:audio/webm;base64,...")
     const base64Data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
 
-    const response = await getAI().models.generateContent({
-      model: "gemini-3.1-flash-lite",
+    const response = await generateContentWithRotation({
+      model: "gemini-2.5-flash",
       contents: [
         { text: "Transcribe the following audio accurately. Reply ONLY with the transcribed text. Do not add any introductory or concluding remarks. If it's completely silent or unintelligible, just reply with '[Inaudible]'" },
         { inlineData: { mimeType: "audio/webm", data: base64Data } }
@@ -498,8 +528,8 @@ app.post("/api/brain-ingest", async (req, res) => {
 
   try {
     // 1. Distill raw data using Gemini into Obsidian Markdown
-    const response = await getAI().models.generateContent({
-      model: "gemini-3.1-flash-lite",
+    const response = await generateContentWithRotation({
+      model: "gemini-2.5-flash",
       contents: `You are the AI Brain's Distillation Engine. Extract the fundamental facts, core principles, and useful knowledge from the raw text.
 
       RULES:
