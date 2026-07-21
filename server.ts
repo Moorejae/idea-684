@@ -516,7 +516,7 @@ app.post("/api/simulate-prompt", async (req, res) => {
             console.error(`[GITHUB] Error pushing to GitHub:`, ghError);
           }
         } else {
-          console.warn("[GITHUB] No GITHUB_TOKEN found. Ino's memory was not pushed to GitHub.");
+          console.warn("[GITHUB] No GITHUB_TOKEN found. Eyeno's memory was not pushed to GitHub.");
         }
 
         const { createObsidianNote } = await import("./github-db.js");

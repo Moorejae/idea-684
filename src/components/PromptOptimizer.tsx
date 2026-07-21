@@ -795,9 +795,8 @@ export default function PromptOptimizer({
                       {brainContext}
                     </div>
                   ) : (
-                    <p className="text-xs text-emerald-400/50 leading-relaxed italic">
-                      Eyeno's brain is empty for this topic.
-                      Gemini optimized this draft using standard knowledge.
+                    <p className="text-xs text-emerald-400/70 leading-relaxed italic">
+                      While no historical Markdown records matched this specific topic, Eyeno's core cognitive models and architectural perspective were still actively applied to shape and optimize this masterpiece.
                     </p>
                   )}
                 </div>
