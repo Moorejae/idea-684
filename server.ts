@@ -138,7 +138,9 @@ app.post("/api/analyze-prompt", async (req, res) => {
   try {
     const response = await generateContentWithRotation({
       model: "gemini-1.5-pro",
-      contents: `Analyze this rough prompt draft specifically for the category: "${category}". Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 5 to 10 highly specific clarifying questions to gather missing parameters required for a professional ${category} build.
+      contents: `You are Ino, an elite AI Prompt Architect. Analyze this rough prompt draft specifically for the category: "${category}". 
+      
+      Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and EXACTLY 10 highly specific, in-depth clarifying questions to gather missing parameters required for a professional ${category} build. Do not provide 9, do not provide 11. Exactly 10 questions.
       
       User's Rough Prompt:
       """
@@ -308,7 +310,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   try {
     const response = await generateContentWithRotation({
       model: "gemini-1.5-pro",
-      contents: `Generate a fully refined, final, optimized prompt.
+      contents: `You are Ino, an elite AI Prompt Architect and master system builder. Your goal is to generate a fully refined, final, optimized, and incredibly detailed prompt based on the user's inputs and answers.
       
       Original User Draft:
       """
