@@ -471,11 +471,55 @@ app.post("/api/simulate-prompt", async (req, res) => {
           filename = filenameMatch[1].trim();
           distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
         }
+        
+        const safeTitle = filename.replace(/[^a-zA-Z0-9- ]/g, "").replace(/\s+/g, "-").toLowerCase();
+        const timestamp = new Date().toISOString().split("T")[0];
+        const finalFilename = `${timestamp}-${safeTitle}.md`;
+        
+        const brainDir = path.join(process.cwd(), ".brain");
+        await fs.promises.mkdir(brainDir, { recursive: true });
+        const fileContent = distilled + "\n\n---\n**Source:** Post-Validation Learning Loop (Prompt Architect)\n**Test Input:** " + testInput + "\n**Date:** " + new Date().toISOString();
+        await fs.promises.writeFile(path.join(brainDir, finalFilename), fileContent);
+        console.log(`[DISTILL] Saved new brain module locally: ${finalFilename}`);
 
-        distilled += "\n\n---\n**Source:** Post-Validation Learning Loop (Prompt Architect)\n**Test Input:** " + testInput + "\n**Date:** " + new Date().toISOString();
+        // --- GITHUB MEMORY PERSISTENCE ---
+        const githubToken = process.env.GITHUB_TOKEN;
+        if (githubToken) {
+          try {
+            const owner = "Moorejae";
+            const repo = "idea-684";
+            const pathInRepo = `.brain/${finalFilename}`;
+            const url = `https://api.github.com/repos/${owner}/${repo}/contents/${pathInRepo}`;
+            
+            const contentBase64 = Buffer.from(fileContent).toString("base64");
+            
+            const ghRes = await fetch(url, {
+              method: "PUT",
+              headers: {
+                "Authorization": `Bearer ${githubToken}`,
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Ino-Brain-Distiller"
+              },
+              body: JSON.stringify({
+                message: `brain: Ino learned ${safeTitle}`,
+                content: contentBase64
+              })
+            });
+            
+            if (ghRes.ok) {
+              console.log(`[GITHUB] Successfully committed ${finalFilename} to ${owner}/${repo}`);
+            } else {
+              const errText = await ghRes.text();
+              console.error(`[GITHUB] Failed to commit to GitHub:`, errText);
+            }
+          } catch (ghError) {
+            console.error(`[GITHUB] Error pushing to GitHub:`, ghError);
+          }
+        } else {
+          console.warn("[GITHUB] No GITHUB_TOKEN found. Ino's memory was not pushed to GitHub.");
+        }
 
         const { createObsidianNote } = await import("./github-db.js");
-        await createObsidianNote(distilled, filename);
         console.log("[LEARNING LOOP] Brain trained with validated pattern: " + filename);
       } catch (loopErr) {
         console.error("[LEARNING LOOP] Post-validation training failed:", loopErr);
