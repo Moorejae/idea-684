@@ -1,0 +1,17 @@
+# Cloudflare Pages configuration for Myzelva
+# Deploys from Moorejae/idea-684 on push to main.
+#
+# - Frontend: built with Vite into dist/ and served from the Cloudflare edge.
+# - API: functions/api/* (Pages Functions) proxy /api/* to the Render backend,
+#   which runs the Qwen/HF engine. Set MYZELVA_BACKEND below if the Render URL
+#   ever changes.
+
+name = "myzelva"
+compatibility_date = "2024-01-01"
+
+pages_build_output_dir = "dist"
+
+# The production backend that Pages Functions forward /api/* to.
+# Can be overridden per-environment via Cloudflare Pages env vars.
+[vars]
+MYZELVA_BACKEND = "https://idea-684.onrender.com"

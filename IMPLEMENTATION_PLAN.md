@@ -31,12 +31,20 @@ HF_TOKEN=your_huggingface_access_token_here
 PORT=3000
 ```
 
-## Deployment
+## Deployment (Cloudflare in front, Render as backend)
 
-- Render workspace already exists and auto-deploys on push to `main`.
+- **Cloudflare Pages** serves `myzelva.com` (fast edge, static frontend from `dist/`).
+  Auto-deploys from `Moorejae/idea-684` on push to `main` (`wrangler.toml` documents it).
+- **`functions/api/[[path]].ts`** — a Pages Function that proxies every `/api/*`
+  request to the Render backend, so the browser's `fetch("/api/...")` works on
+  `myzelva.com`. (Before this, Cloudflare had no `/api` handler → HTTP 405.)
+  Backend URL is configurable via `MYZELVA_BACKEND` env.
+- **Render** (`idea-684.onrender.com`) runs the Express + Qwen engine. Auto-deploys
+  on push to `main`. Set `LLM_ENDPOINT`, `LLM_MODEL`, `HF_TOKEN` in dashboard
+  secrets (optional — provider has a built-in default endpoint, so it works with
+  zero config and just falls back to the self-hosted Qwen Space).
 - The local git remote was misconfigured (`my-obsidian-vault`) — fixed to
   `https://github.com/Moorejae/idea-684.git`.
-- On Render, set `LLM_ENDPOINT`, `LLM_MODEL`, `HF_TOKEN` in the dashboard secrets.
 
 ## Notes / caveats (free tier)
 
