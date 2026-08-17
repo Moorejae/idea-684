@@ -3,7 +3,7 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 
-import { generateOrThrow, warmUpQwenSpace } from "./src/llm/provider.js";
+import { generateOrThrow, warmUpQwenSpace, getLLMEndpoint, getHFToken } from "./src/llm/provider.js";
 import { extractJson, safeString, safeStringArray } from "./src/llm/json.js";
 import {
   CATEGORY_LABELS,
@@ -47,10 +47,13 @@ setInterval(() => {
   }).catch(() => {});
 }, 4 * 60 * 1000); // every 4 min — under HF free-tier sleep thresholds
 
-// Helper to ensure an LLM backend exists
+// Helper to ensure an LLM backend exists.
+// Uses the provider's RESOLVED config (which has a built-in default endpoint),
+// so the app works even when Render has no env vars set — the provider just
+// falls back to the self-hosted Qwen Space.
 function checkApiKey(res: express.Response) {
-  const endpoint = (process.env.LLM_ENDPOINT || "").trim();
-  const token = (process.env.HF_TOKEN || process.env.HF_ACCESS_TOKEN || "").trim();
+  const endpoint = getLLMEndpoint();
+  const token = getHFToken();
   if (!endpoint && !token) {
     res.status(500).json({
       error: "No LLM backend configured. Set LLM_ENDPOINT (self-hosted Qwen Space) or HF_TOKEN in the environment."
