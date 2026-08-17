@@ -19,6 +19,15 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: "50mb" }));
 
+// ── HEALTH / WAKE-ALIVE ──
+// UptimeRobot pings this every 5 min to keep the free-tier Render instance awake
+// (Render hibernates after ~15 min of no traffic). Keep it instant and LLM-free
+// so a ping never triggers a slow model call or Vite middleware spin-up.
+app.get(["/health", "/api/health"], (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
+
 // ── LLM BACKEND (Qwen via Hugging Face — no Gemini keys) ──
 console.log("[STARTUP] LLM backend: Qwen via Hugging Face (self-hosted Space -> HF router).");
 
