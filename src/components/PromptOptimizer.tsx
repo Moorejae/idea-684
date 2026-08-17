@@ -54,6 +54,19 @@ async function parseJsonSafe(res: Response): Promise<any> {
   }
 }
 
+/**
+ * API base. On the custom domain (myzelva.com) the frontend is served by
+ * Cloudflare, whose Pages functions cap requests at ~30s — too short for the
+ * Qwen cold-start. So on that host we call the Render backend DIRECTLY (CORS
+ * enabled on the server) and let Cloudflare just serve the static site.
+ */
+const API_BASE = (() => {
+  if (typeof window !== "undefined" && window.location?.hostname === "myzelva.com") {
+    return "https://idea-684.onrender.com";
+  }
+  return "";
+})();
+
 interface PromptOptimizerProps {
   initialPrompt: string;
   setInitialPrompt: (prompt: string) => void;
@@ -115,7 +128,7 @@ export default function PromptOptimizer({
     setApiError(null);
 
     try {
-      const res = await fetch("/api/analyze-prompt", {
+      const res = await fetch(`${API_BASE}/api/analyze-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: initialPrompt })
@@ -157,7 +170,7 @@ export default function PromptOptimizer({
     }));
 
     try {
-      const res = await fetch("/api/regenerate-prompt", {
+      const res = await fetch(`${API_BASE}/api/regenerate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -190,7 +203,7 @@ export default function PromptOptimizer({
     setApiError(null);
 
     try {
-      const res = await fetch("/api/simulate-prompt", {
+      const res = await fetch(`${API_BASE}/api/simulate-prompt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
