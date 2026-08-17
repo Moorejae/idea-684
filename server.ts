@@ -115,6 +115,7 @@ ${userPrompt}
       json: true,
       temperature: 0.4,
       maxTokens: 1400,
+      timeoutMs: 90 * 1000,
     });
 
     const parsed = extractJson(diagnosis.text);
@@ -146,6 +147,7 @@ Output ONLY a JSON object: { "clarifyingQuestions": [ {id, question, context, op
       json: true,
       temperature: 0.5,
       maxTokens: 1200,
+      timeoutMs: 90 * 1000,
     });
 
     const qParsed = extractJson(questionResult.text);
@@ -266,6 +268,7 @@ app.post("/api/regenerate-prompt", async (req, res) => {
       json: true,
       temperature: 0.4,
       maxTokens: 2200,
+      timeoutMs: 120 * 1000,
     });
 
     const parsedResult = extractJson(response.text);
@@ -312,6 +315,7 @@ Test Input:
 ${testInput}`,
         temperature: 0.7,
         maxTokens: 1500,
+        timeoutMs: 90 * 1000,
       }),
       generateOrThrow({
         system: "You are a friendly, highly constructive prompt engineering validator. Be concise — under 150 words.",
@@ -321,6 +325,7 @@ ${testInput}`,
       Test Input: ${testInput}`,
         temperature: 0.4,
         maxTokens: 300,
+        timeoutMs: 60 * 1000,
       })
     ]);
 
@@ -334,6 +339,20 @@ ${testInput}`,
     console.error("Simulation API Error:", err);
     res.status(500).json({ error: "Failed to simulate prompt: " + err.message });
   }
+});
+
+// ── Global JSON error handler ──
+// Guarantee every response is JSON, even on an unexpected crash — an empty
+// body is what makes the browser throw "unexpected end of JSON input".
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[SERVER ERROR]", err);
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  res.status(err?.status || 500).json({
+    error: err?.message || "Internal server error. Please try again."
+  });
 });
 
 // Serve static assets in production, hook Vite middleware in development

@@ -28,6 +28,32 @@ import { motion, AnimatePresence } from "motion/react";
 import { AnalysisResult, SavedPrompt } from "../types";
 import TemplateLibrary from "./TemplateLibrary";
 
+/**
+ * Safely parse a fetch response body as JSON. The backend always tries to
+ * return { error } on failure, but a proxy timeout / cold-boot can deliver an
+ * empty or non-JSON body — which would otherwise surface as the cryptic
+ * "unexpected end of JSON input". Falls back to a readable message.
+ */
+async function parseJsonSafe(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text || !text.trim()) {
+    throw new Error(
+      res.ok
+        ? "The server returned an empty response. Please try again."
+        : `Request failed (HTTP ${res.status}) with an empty response. Please try again.`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Not JSON — show a snippet of what came back instead of a parse crash.
+    const snippet = text.replace(/\s+/g, " ").trim().substring(0, 120);
+    throw new Error(
+      `The server returned an unexpected response (HTTP ${res.status}). ${snippet}`
+    );
+  }
+}
+
 interface PromptOptimizerProps {
   initialPrompt: string;
   setInitialPrompt: (prompt: string) => void;
@@ -95,12 +121,12 @@ export default function PromptOptimizer({
         body: JSON.stringify({ prompt: initialPrompt })
       });
 
+      const data = await parseJsonSafe(res);
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to analyze prompt.");
+        throw new Error(data.error || "Failed to analyze prompt.");
       }
 
-      const data: AnalysisResult = await res.json();
       setAnalysis(data);
       
       // Seed initial empty answers
@@ -141,12 +167,12 @@ export default function PromptOptimizer({
         })
       });
 
+      const data = await parseJsonSafe(res);
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to synthesize prompt.");
+        throw new Error(data.error || "Failed to synthesize prompt.");
       }
 
-      const data = await res.json();
       setFinalResult(data);
       setStep(3);
     } catch (err: any) {
@@ -173,12 +199,12 @@ export default function PromptOptimizer({
         })
       });
 
+      const data = await parseJsonSafe(res);
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to run simulation.");
+        throw new Error(data.error || "Failed to run simulation.");
       }
 
-      const data = await res.json();
       setSimulatedOutput(data.simulatedOutput);
       setSimulatedAnalysis(data.analysis);
     } catch (err: any) {
