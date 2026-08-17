@@ -2,31 +2,49 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { generateOrThrow, warmUpQwenSpace } from "./src/llm/provider.js";
+import { extractJson, safeString, safeStringArray } from "./src/llm/json.js";
+import {
+  CATEGORY_LABELS,
+  detectCategory,
+  PLAYBOOKS,
+  type Category,
+} from "./src/llm/playbooks.js";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 
-// Initialize Gemini SDK safely
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({
-  apiKey: apiKey || "MOCK_KEY",
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
+// ── LLM BACKEND (Qwen via Hugging Face — no Gemini keys) ──
+console.log("[STARTUP] LLM backend: Qwen via Hugging Face (self-hosted Space -> HF router).");
+
+// Wake the self-hosted Qwen Space on boot + keep it warm so the first real
+// request isn't a multi-minute cold start. Free HF Spaces sleep on inactivity.
+(async () => {
+  try {
+    const ok = await warmUpQwenSpace();
+    console.log(`[WARMUP] Qwen Space ${ok ? "is awake" : "not reachable yet (will retry)"}.`);
+  } catch (e: any) {
+    console.warn(`[WARMUP] error: ${e?.message}`);
   }
-});
+})();
+setInterval(() => {
+  warmUpQwenSpace().then((ok) => {
+    if (ok) console.log("[KEEPALIVE] Qwen Space ping OK");
+  }).catch(() => {});
+}, 4 * 60 * 1000); // every 4 min — under HF free-tier sleep thresholds
 
-// Helper to ensure Gemini API Key exists
+// Helper to ensure an LLM backend exists
 function checkApiKey(res: express.Response) {
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+  const endpoint = (process.env.LLM_ENDPOINT || "").trim();
+  const token = (process.env.HF_TOKEN || process.env.HF_ACCESS_TOKEN || "").trim();
+  if (!endpoint && !token) {
     res.status(500).json({
-      error: "Gemini API key is missing. Please configure it in Settings > Secrets."
+      error: "No LLM backend configured. Set LLM_ENDPOINT (self-hosted Qwen Space) or HF_TOKEN in the environment."
     });
     return false;
   }
@@ -35,7 +53,7 @@ function checkApiKey(res: express.Response) {
 
 // Prompt Engineering Knowledge Base (embedded in system instruction)
 const CORE_PROMPT_ENGINEERING_GUIDELINES = `
-You are the World's Premier Prompt Architect and Prompt Engineering Researcher. 
+You are the World's Premier Prompt Architect and Prompt Engineering Researcher.
 Your expertise is built upon the published prompt engineering best practices from Google (Gemini), Anthropic (Claude), and OpenAI (GPT-4o).
 
 When analyzing or refining a user's prompt, adhere strictly to these core research-backed rules:
@@ -50,6 +68,8 @@ When analyzing or refining a user's prompt, adhere strictly to these core resear
 `;
 
 // 1. Analyze prompt and produce clarifying questions + initial refined draft
+//    TWO-STAGE: diagnose first, then generate only deep category-specific
+//    questions grounded in the diagnosis (auto-detected build category).
 app.post("/api/analyze-prompt", async (req, res) => {
   if (!checkApiKey(res)) return;
 
@@ -60,73 +80,95 @@ app.post("/api/analyze-prompt", async (req, res) => {
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
-      
-      User's Rough Prompt:
-      """
-      ${userPrompt}
-      """`,
-      config: {
-        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nProvide a deep, constructive analysis. Make sure the clarifying questions you ask are highly effective, targeted at identifying critical omissions (like target technology, user constraints, output format, or persona details) and include suggestive options for quick user replies.`,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            refinedPrompt: {
-              type: Type.STRING,
-              description: "A preliminary refined version of the prompt that instantly applies basic structures (Persona, Context, Basic Constraints) to show immediate improvement."
-            },
-            evaluation: {
-              type: Type.ARRAY,
-              description: "Evaluate the prompt across core prompt-engineering dimensions.",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  criteria: { type: Type.STRING, description: "Dimension being evaluated (e.g., Persona/Role, Objective, Constraints, Output Structure)." },
-                  rating: { type: Type.STRING, description: "Must be exactly one of: 'excellent', 'good', or 'needs-improvement'" },
-                  feedback: { type: Type.STRING, description: "Short, actionable feedback about how this dimension stands in the original prompt." }
-                },
-                required: ["criteria", "rating", "feedback"]
-              }
-            },
-            strengths: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "What the user actually did well in their initial formulation."
-            },
-            gaps: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Critical prompt engineering details that are currently missing or ambiguous."
-            },
-            clarifyingQuestions: {
-              type: Type.ARRAY,
-              description: "3-4 highly relevant clarifying questions to help the user specify crucial details.",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING, description: "A short, unique slug (e.g., 'framework', 'constraints', 'format')." },
-                  question: { type: Type.STRING, description: "The core question asking for detail." },
-                  context: { type: Type.STRING, description: "A brief, friendly explanation of why this parameter is vital for a great AI response." },
-                  options: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                    description: "3-4 helpful pre-baked option suggestions to make replying effortless."
-                  }
-                },
-                required: ["id", "question", "context", "options"]
-              }
-            }
-          },
-          required: ["refinedPrompt", "evaluation", "strengths", "gaps", "clarifyingQuestions"]
-        }
-      }
+    const category: Category = detectCategory(userPrompt);
+    const catLabel = CATEGORY_LABELS[category];
+    const playbook = PLAYBOOKS[category];
+
+    // ── STAGE 1: Diagnose only (no questions yet) ──
+    const diagnosis = await generateOrThrow({
+      system: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\n\nYou are a Senior Principal Engineer and elite Prompt Architect diagnosing a rough prompt for a "${catLabel}" build.`,
+      user: `Analyze this rough prompt draft for the category "${catLabel}". Produce a JSON object with exactly these fields:
+- "refinedPrompt": a preliminary refined version that instantly applies basic structure (Persona, Context, Basic Constraints).
+- "evaluation": array of {criteria, rating ("excellent"|"good"|"needs-improvement"), feedback}.
+- "strengths": array of strings — what the user did well.
+- "gaps": array of strings — critical prompt-engineering details missing or ambiguous.
+
+Category playbook (parameters that matter for this build type — use them to find the real gaps):
+${playbook.parameters.map((p) => `- ${p}`).join("\n")}
+
+Edge cases this build type usually forgets:
+${playbook.edgeCases.map((p) => `- ${p}`).join("\n")}
+
+User's Rough Prompt:
+"""
+${userPrompt}
+"""`,
+      json: true,
+      temperature: 0.4,
+      maxTokens: 1400,
     });
 
-    const parsedResult = JSON.parse(response.text || "{}");
-    res.json(parsedResult);
+    const parsed = extractJson(diagnosis.text);
+
+    // ── STAGE 2: Generate ONLY deep, category-specific clarifying questions ──
+    const questionResult = await generateOrThrow({
+      system: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\n\nYou are a Senior Staff Engineer and elite Prompt Architect. You NEVER ask generic, surface-level questions ("Who is the audience?", "What is the tone?"). You probe deeply into architecture, edge-cases, technical constraints, and domain-specific mechanics.`,
+      user: `Here is a rough prompt and its diagnosis for a "${catLabel}" build.
+
+ROUGH PROMPT:
+"""
+${userPrompt}
+"""
+
+DIAGNOSIS (gaps):
+- ${(parsed.gaps || []).join("\n- ") || "none listed"}
+
+CATEGORY PARAMETERS THAT MUST BE COVERED (probe the ones the user has NOT already specified):
+${playbook.parameters.map((p) => `- ${p}`).join("\n")}
+
+GENERATE EXACTLY 5 clarifying questions. They must be:
+1. SPECIFIC to this exact build — not generic, not interchangeable with another build type.
+2. Probing a real missing parameter that the prompt has NOT already answered.
+3. Each must include: "id" (short slug), "question", "context" (why this parameter is vital for a great AI response), "options" (3-4 pre-baked suggestions).
+
+Self-check before answering: score each question 1-5 on (a) specificity, (b) cannot-be-answered-from-the-prompt, (c) leverage. Drop any that score under 4. Quality over quantity — exactly 5 questions.
+
+Output ONLY a JSON object: { "clarifyingQuestions": [ {id, question, context, options} ] }`,
+      json: true,
+      temperature: 0.5,
+      maxTokens: 1200,
+    });
+
+    const qParsed = extractJson(questionResult.text);
+    const rawQuestions = Array.isArray(qParsed?.clarifyingQuestions)
+      ? qParsed.clarifyingQuestions
+      : [];
+
+    const clarifyingQuestions = rawQuestions
+      .filter((q: any) => q && typeof q.id === "string" && typeof q.question === "string")
+      .slice(0, 6)
+      .map((q: any) => ({
+        id: safeString(q.id, `q${Math.random().toString(36).slice(2, 7)}`),
+        question: safeString(q.question, ""),
+        context: safeString(q.context, ""),
+        options: Array.isArray(q.options)
+          ? q.options.filter((o: any) => typeof o === "string").slice(0, 4)
+          : [],
+      }));
+
+    // Same shape the UI already expects.
+    const normalizedAnalysis = {
+      originalPrompt: userPrompt,
+      refinedPrompt: safeString(parsed.refinedPrompt, ""),
+      evaluation: Array.isArray(parsed.evaluation)
+        ? parsed.evaluation.filter((e: any) => e && typeof e.criteria === "string")
+        : [],
+      strengths: safeStringArray(parsed.strengths),
+      gaps: safeStringArray(parsed.gaps),
+      clarifyingQuestions,
+    };
+
+    res.json(normalizedAnalysis);
   } catch (err: any) {
     console.error("Analysis API Error:", err);
     res.status(500).json({ error: "Failed to analyze prompt: " + err.message });
@@ -194,9 +236,9 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Generate a fully refined, final, optimized prompt.
+    const response = await generateOrThrow({
+      system: systemPrompt,
+      user: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
       """
@@ -206,34 +248,30 @@ app.post("/api/regenerate-prompt", async (req, res) => {
       User Answers to Clarifying Questions:
       ${answersText}
       
-      Requested Format Style: ${style.toUpperCase()}`,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            refinedPrompt: { 
-              type: Type.STRING, 
-              description: "The complete, finalized, ready-to-use optimized prompt." 
-            },
-            explanation: { 
-              type: Type.STRING, 
-              description: "A summary of what was added or improved (e.g., persona details, output constraints, formatting schemas) based on user choices." 
-            },
-            keyAdditions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Bulleted list of key additions compiled directly from user answers."
-            }
-          },
-          required: ["refinedPrompt", "explanation", "keyAdditions"]
-        }
-      }
+      Requested Format Style: ${style.toUpperCase()}
+
+      Output ONLY a JSON object with exactly these fields:
+      - "refinedPrompt": the complete, finalized, ready-to-use optimized prompt.
+      - "explanation": a summary of what was added or improved based on user choices.
+      - "keyAdditions": array of strings — key additions compiled directly from user answers.`,
+      json: true,
+      temperature: 0.4,
+      maxTokens: 2200,
     });
 
-    const parsedResult = JSON.parse(response.text || "{}");
-    res.json(parsedResult);
+    const parsedResult = extractJson(response.text);
+
+    // Server-side normalization: never trust the LLM to send a perfectly
+    // shaped response. Guarantee all required fields are present.
+    const normalizedResult = {
+      refinedPrompt: safeString(parsedResult.refinedPrompt, "").trim()
+        || "[Error: The AI did not return a refined prompt. Please try again.]",
+      explanation: safeString(parsedResult.explanation, "").trim()
+        || "Prompt refined successfully.",
+      keyAdditions: safeStringArray(parsedResult.keyAdditions),
+    };
+
+    res.json(normalizedResult);
   } catch (err: any) {
     console.error("Regenerate API Error:", err);
     res.status(500).json({ error: "Failed to refine prompt: " + err.message });
@@ -253,43 +291,31 @@ app.post("/api/simulate-prompt", async (req, res) => {
   const testInput = userInput || "Provide a default or empty sample input to demonstrate.";
 
   try {
-    // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
-        
-        === ENGINEERED PROMPT START ===
-        ${prompt}
-        === ENGINEERED PROMPT END ===
-        
-        Test Input:
-        ${testInput}` }
-      ],
-      config: {
+    // Run simulation and evaluation IN PARALLEL with Promise.all
+    const [simulateResponse, evaluationResponse] = await Promise.all([
+      generateOrThrow({
+        system: "Execute the engineered prompt exactly as written. Do not break character. Do not include any meta-introductions about this simulation.",
+        user: `=== ENGINEERED PROMPT START ===
+${prompt}
+=== ENGINEERED PROMPT END ===
+
+Test Input:
+${testInput}`,
         temperature: 0.7,
-      }
-    });
+        maxTokens: 1500,
+      }),
+      generateOrThrow({
+        system: "You are a friendly, highly constructive prompt engineering validator. Be concise — under 150 words.",
+        user: `You are a prompt validator. Review this engineered prompt and test input. Explain in under 150 words why this prompt is well-structured, what design elements worked well, and one small improvement the user could consider.
+      
+      Prompt: ${prompt}
+      Test Input: ${testInput}`,
+        temperature: 0.4,
+        maxTokens: 300,
+      })
+    ]);
 
-    const simulatedOutput = response.text || "No output generated.";
-
-    // Now, run a secondary quick call to evaluate why this prompt worked so well!
-    const evaluationResponse = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
-      
-      Prompt:
-      ${prompt}
-      
-      Test Input:
-      ${testInput}
-      
-      Output:
-      ${simulatedOutput}`,
-      config: {
-        systemInstruction: "You are a friendly, highly constructive prompt engineering validator. Provide a short, structured evaluation under 150 words.",
-      }
-    });
+    const simulatedOutput = simulateResponse.text || "No output generated.";
 
     res.json({
       simulatedOutput,
