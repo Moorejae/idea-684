@@ -1,108 +1,32 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
-import cors from "cors";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json());
 
-// ── API KEY POOLING & ROTATION LOGIC ──
-function getApiKeys(): string[] {
-  const pool = process.env.GEMINI_API_KEY_POOL;
-  if (pool) {
-    const keys = pool.split(",").map(k => k.trim()).filter(k => k.length > 0);
-    if (keys.length > 0) return keys;
-  }
-  const single = process.env.GEMINI_API_KEY;
-  if (single && single.trim().length > 0) return [single.trim()];
-  return ["MOCK_KEY"];
-}
-
-const startupKeys = getApiKeys();
-console.log(`[STARTUP] Loaded ${startupKeys.length} GEMINI API keys from environment.`);
-
-// ── MULTI-MODEL FALLBACK LIST ──
-const FALLBACK_MODELS = [
-  "gemini-2.5-flash",       // 1. User's ideal smart model
-  "gemini-3.5-flash",       // 2. Experimental upgrade
-  "gemini-2.0-flash",       // 3. Modern fast standard
-  "gemini-1.5-pro",         // 4. Deep reasoning standard
-  "gemini-1.5-flash",       // 5. Reliable fast fallback
-  "gemini-3.1-flash-lite",  // 6. High quota fallback
-];
-
-let currentKeyIndex = 0;
-let currentModelIndex = 0;
-
-async function generateContentWithRotation(payload: any): Promise<any> {
-  const keys = getApiKeys();
-  let modelAttempts = 0;
-
-  while (modelAttempts < FALLBACK_MODELS.length) {
-    const currentModel = FALLBACK_MODELS[currentModelIndex];
-    // Override the hardcoded payload model with our current rotated model
-    const currentPayload = { ...payload, model: currentModel };
-    
-    let keyAttempts = 0;
-
-    while (keyAttempts < keys.length) {
-      const key = keys[currentKeyIndex];
-      const ai = new GoogleGenAI({
-        apiKey: key,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-      });
-
-      try {
-        return await ai.models.generateContent(currentPayload);
-      } catch (error: any) {
-        const isQuota = error?.status === 429 || error?.message?.includes("429") || error?.message?.includes("Quota exceeded") || error?.message?.includes("RESOURCE_EXHAUSTED");
-        const isInvalidKey = error?.status === 400 || error?.status === 403 || error?.message?.includes("API_KEY_INVALID") || error?.message?.includes("API key not valid");
-        const isUnavailable = error?.status === 503 || error?.status === 500 || error?.message?.includes("503") || error?.message?.includes("high demand") || error?.message?.includes("UNAVAILABLE");
-        const isModelNotFound = error?.status === 404 || error?.message?.includes("404") || error?.message?.includes("not found") || error?.message?.includes("not supported") || error?.message?.includes("no longer available");
-
-        if (isModelNotFound) {
-          console.warn(`[MODEL ROTATION] Model '${currentModel}' is 404/Deprecated. Rotating to next model...`);
-          currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
-          modelAttempts++;
-          keyAttempts = 0; // Reset key attempts for the new model
-          break; // Break inner loop to try the new model
-        }
-
-        if (isQuota || isInvalidKey || isUnavailable) {
-          console.warn(`[API ROTATION] Key at index ${currentKeyIndex} failed (${isQuota ? 'Quota Exceeded' : isUnavailable ? 'High Demand / 503' : 'Invalid/Bad Key'}). Rotating key...`);
-          currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-          keyAttempts++;
-        } else {
-          console.error(`[API FATAL] Non-recoverable error on key index ${currentKeyIndex} and model ${currentModel}:`, error?.message);
-          throw error;
-        }
-      }
-    }
-
-    // If we exhausted all keys for the current model (e.g., all gave 503 High Demand), rotate the model and try again
-    if (keyAttempts >= keys.length && modelAttempts < FALLBACK_MODELS.length) {
-      console.warn(`[MODEL ROTATION] All keys failed for model '${currentModel}'. Rotating to next model as fallback...`);
-      currentModelIndex = (currentModelIndex + 1) % FALLBACK_MODELS.length;
-      modelAttempts++;
+// Initialize Gemini SDK safely
+const apiKey = process.env.GEMINI_API_KEY;
+const ai = new GoogleGenAI({
+  apiKey: apiKey || "MOCK_KEY",
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
     }
   }
-
-  throw new Error("CRITICAL: Exhausted all available API keys AND all fallback models. Pipeline is completely blocked. Please check API limits and model availability.");
-}
+});
 
 // Helper to ensure Gemini API Key exists
 function checkApiKey(res: express.Response) {
-  const keys = getApiKeys();
-  if (keys[0] === "MOCK_KEY" || keys[0] === "MY_GEMINI_API_KEY") {
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
     res.status(500).json({
-      error: "Gemini API key is missing. Please configure GEMINI_API_KEY_POOL or GEMINI_API_KEY in Settings > Secrets."
+      error: "Gemini API key is missing. Please configure it in Settings > Secrets."
     });
     return false;
   }
@@ -129,25 +53,23 @@ When analyzing or refining a user's prompt, adhere strictly to these core resear
 app.post("/api/analyze-prompt", async (req, res) => {
   if (!checkApiKey(res)) return;
 
-  const { prompt: userPrompt, category = "Basic/General" } = req.body;
+  const { prompt: userPrompt } = req.body;
   if (!userPrompt || typeof userPrompt !== "string" || !userPrompt.trim()) {
     res.status(400).json({ error: "A valid prompt string is required." });
     return;
   }
 
   try {
-    const response = await generateContentWithRotation({
-      model: "gemini-1.5-pro",
-      contents: `You are Ino, an elite AI Prompt Architect. Analyze this rough prompt draft specifically for the category: "${category}". 
-      
-      Provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and EXACTLY 10 highly specific, in-depth clarifying questions to gather missing parameters required for a professional ${category} build. Do not provide 9, do not provide 11. Exactly 10 questions.
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Analyze this rough prompt draft and provide prompt-engineering diagnostic feedback, strengths, missing details (gaps), an initial refined draft, and 3-4 specific clarifying questions to gather missing parameters.
       
       User's Rough Prompt:
       """
       ${userPrompt}
       """`,
       config: {
-        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nYou are a Senior Principal Engineer and elite Prompt Architect. You do NOT ask generic, surface-level questions (e.g., 'Who is the audience?', 'What is the tone?'). Instead, you probe deeply into architecture, edge-cases, specific technical constraints, data schemas, and domain-specific mechanics for "${category}". Before asking questions, use the 'expertReasoning' field to think through the hidden technical complexities the user missed.`,
+        systemInstruction: `${CORE_PROMPT_ENGINEERING_GUIDELINES}\nProvide a deep, constructive analysis. Make sure the clarifying questions you ask are highly effective, targeted at identifying critical omissions (like target technology, user constraints, output format, or persona details) and include suggestive options for quick user replies.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -179,13 +101,9 @@ app.post("/api/analyze-prompt", async (req, res) => {
               items: { type: Type.STRING },
               description: "Critical prompt engineering details that are currently missing or ambiguous."
             },
-            expertReasoning: {
-              type: Type.STRING,
-              description: "Chain-of-thought: Act as a Senior Staff Engineer. Think deeply about the hidden technical complexities, edge cases, and missing domain-specific mechanics before formulating your questions. Explain exactly WHY the user's prompt is structurally weak."
-            },
             clarifyingQuestions: {
               type: Type.ARRAY,
-              description: `5 to 10 highly relevant and specific clarifying questions targeting missing parameters for ${category}.`,
+              description: "3-4 highly relevant clarifying questions to help the user specify crucial details.",
               items: {
                 type: Type.OBJECT,
                 properties: {
@@ -202,34 +120,13 @@ app.post("/api/analyze-prompt", async (req, res) => {
               }
             }
           },
-          required: ["refinedPrompt", "evaluation", "strengths", "gaps", "expertReasoning", "clarifyingQuestions"]
+          required: ["refinedPrompt", "evaluation", "strengths", "gaps", "clarifyingQuestions"]
         }
       }
     });
 
-    let jsonText = response.text || "{}";
-    jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const parsedResult = JSON.parse(jsonText);
-
-    // Normalize analysis response — ensure all array fields always exist
-    const normalizedAnalysis = {
-      refinedPrompt: typeof parsedResult.refinedPrompt === "string" ? parsedResult.refinedPrompt : "",
-      evaluation: Array.isArray(parsedResult.evaluation)
-        ? parsedResult.evaluation.filter((e: any) => e && typeof e.criteria === "string")
-        : [],
-      strengths: Array.isArray(parsedResult.strengths)
-        ? parsedResult.strengths.filter((s: any) => typeof s === "string")
-        : [],
-      gaps: Array.isArray(parsedResult.gaps)
-        ? parsedResult.gaps.filter((g: any) => typeof g === "string")
-        : [],
-      clarifyingQuestions: Array.isArray(parsedResult.clarifyingQuestions)
-        ? parsedResult.clarifyingQuestions.filter((q: any) => q && typeof q.id === "string" && typeof q.question === "string")
-            .map((q: any) => ({ ...q, options: Array.isArray(q.options) ? q.options : [] }))
-        : []
-    };
-
-    res.json(normalizedAnalysis);
+    const parsedResult = JSON.parse(response.text || "{}");
+    res.json(parsedResult);
   } catch (err: any) {
     console.error("Analysis API Error:", err);
     res.status(500).json({ error: "Failed to analyze prompt: " + err.message });
@@ -240,7 +137,7 @@ app.post("/api/analyze-prompt", async (req, res) => {
 app.post("/api/regenerate-prompt", async (req, res) => {
   if (!checkApiKey(res)) return;
 
-  const { originalPrompt, answers, style, eyenoBlueprint } = req.body;
+  const { originalPrompt, answers, style } = req.body;
   if (!originalPrompt || !style) {
     res.status(400).json({ error: "Missing originalPrompt or style in request body." });
     return;
@@ -290,27 +187,16 @@ app.post("/api/regenerate-prompt", async (req, res) => {
   1. The user's original rough draft.
   2. The precise answers they provided to the clarifying questions.
   3. The specific prompting style requested.
-  ${eyenoBlueprint ? "4. The User's Cognitive Architecture Blueprint (Eyeno)." : ""}
   
   ${styleDescription}
-
-  ${eyenoBlueprint ? `
-  =========================================
-  COGNITIVE ARCHITECTURE BLUEPRINT (EYENO)
-  =========================================
-  This is the blueprint of how the user thinks and builds. You MUST use this as the ultimate guide to shape the logic, architecture, and constraints of the final prompt. Enforce these mental models strictly:
-  """
-  ${eyenoBlueprint}
-  """
-  ` : ""}
   
   Make the resulting prompt extremely professional. It should be written from the perspective of an expert user instructing an AI system. It should include clear sections, variables, and strict rules.
   `;
 
   try {
-    const response = await generateContentWithRotation({
-      model: "gemini-1.5-pro",
-      contents: `You are Ino, an elite AI Prompt Architect and master system builder. Your goal is to generate a fully refined, final, optimized, and incredibly detailed prompt based on the user's inputs and answers.
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Generate a fully refined, final, optimized prompt.
       
       Original User Draft:
       """
@@ -339,43 +225,15 @@ app.post("/api/regenerate-prompt", async (req, res) => {
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "Bulleted list of key additions compiled directly from user answers."
-            },
-            suggestedTestInput: {
-              type: Type.STRING,
-              description: "A realistic, specific test input/scenario the user could run to validate this prompt in the sandbox. Should be context-aware based on what they are building."
             }
           },
-          required: ["refinedPrompt", "explanation", "keyAdditions", "suggestedTestInput"]
+          required: ["refinedPrompt", "explanation", "keyAdditions"]
         }
       }
     });
 
-    let jsonText = response.text || "{}";
-    jsonText = jsonText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const parsedResult = JSON.parse(jsonText);
-
-    // Server-side normalization: NEVER trust the LLM to send a perfectly shaped response.
-    // Guarantee all required fields are present with correct types before the client ever sees it.
-    const normalizedResult = {
-      refinedPrompt: typeof parsedResult.refinedPrompt === "string" && parsedResult.refinedPrompt.trim()
-        ? parsedResult.refinedPrompt.trim()
-        : "[Error: The AI did not return a refined prompt. Please try again.]",
-      explanation: typeof parsedResult.explanation === "string" && parsedResult.explanation.trim()
-        ? parsedResult.explanation.trim()
-        : "Prompt refined successfully.",
-      keyAdditions: Array.isArray(parsedResult.keyAdditions)
-        ? parsedResult.keyAdditions.filter((item: any) => typeof item === "string")
-        : [],
-      suggestedTestInput: typeof parsedResult.suggestedTestInput === "string" && parsedResult.suggestedTestInput.trim()
-        ? parsedResult.suggestedTestInput.trim()
-        : "Provide a realistic sample input to test this prompt."
-    };
-
-    res.json(normalizedResult);
-    // NOTE: Learning loop has been moved to /api/simulate-prompt so that the brain
-    // only learns from prompts that have been validated by a real test run.
-
-  // NOTE: Learning loop removed from here. It now lives in /api/simulate-prompt.
+    const parsedResult = JSON.parse(response.text || "{}");
+    res.json(parsedResult);
   } catch (err: any) {
     console.error("Regenerate API Error:", err);
     res.status(500).json({ error: "Failed to refine prompt: " + err.message });
@@ -395,15 +253,11 @@ app.post("/api/simulate-prompt", async (req, res) => {
   const testInput = userInput || "Provide a default or empty sample input to demonstrate.";
 
   try {
-    const ai = getAI();
-
-    // Run simulation and evaluation IN PARALLEL with Promise.all
-    // Previously sequential (2x Gemini calls back-to-back), now concurrent
-    const [simulateResponse, evaluationResponse] = await Promise.all([
-      generateContentWithRotation({
-        model: "gemini-1.5-pro",
-        contents: [
-          { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
+    // We will run the newly optimized prompt as a system/user instruction, and feed it the test input.
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: [
+        { text: `Below is a system/user prompt that has been engineered for optimal performance. Please execute it exactly as written, using the 'Test Input' provided below. Do not break character. Do not include any meta-introductions about this simulation.
         
         === ENGINEERED PROMPT START ===
         ${prompt}
@@ -411,250 +265,39 @@ app.post("/api/simulate-prompt", async (req, res) => {
         
         Test Input:
         ${testInput}` }
-        ],
-        config: { temperature: 0.7 }
-      }),
-      generateContentWithRotation({
-        model: "gemini-1.5-pro", // Using 2.5-flash for evaluation since we have the quota pool now
-        contents: `You are a prompt validator. Review this engineered prompt and test input. Explain in under 120 words why this prompt is well-structured, what design elements worked well, and one small improvement the user could consider.
-      
-      Prompt: ${prompt}
-      Test Input: ${testInput}`,
-        config: {
-          systemInstruction: "You are a friendly, highly constructive prompt engineering validator. Be concise \u2014 under 120 words.",
-        }
-      })
-    ]);
+      ],
+      config: {
+        temperature: 0.7,
+      }
+    });
 
-    const simulatedOutput = simulateResponse.text || "No output generated.";
+    const simulatedOutput = response.text || "No output generated.";
+
+    // Now, run a secondary quick call to evaluate why this prompt worked so well!
+    const evaluationResponse = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `You are a prompt validator. Review this engineered prompt, the test input used, and the generated response. Tell us why this prompt succeeded, what design elements worked well, and any tiny tweak the user might consider.
+      
+      Prompt:
+      ${prompt}
+      
+      Test Input:
+      ${testInput}
+      
+      Output:
+      ${simulatedOutput}`,
+      config: {
+        systemInstruction: "You are a friendly, highly constructive prompt engineering validator. Provide a short, structured evaluation under 150 words.",
+      }
+    });
 
     res.json({
       simulatedOutput,
       analysis: evaluationResponse.text || "Highly structured layout successfully isolated instructions from variables."
     });
-
-    // ==========================================
-    // THE CONTINUOUS LEARNING LOOP (POST-VALIDATION)
-    // ==========================================
-    // Only trains the AI Brain AFTER the prompt has been validated by a real simulation run.
-    // This ensures quality — we only learn from prompts that have actually been tested and proven.
-    (async () => {
-      try {
-        const distillRes = await generateContentWithRotation({
-          model: "gemini-1.5-pro",
-          contents: `You are the AI Brain's Distillation Engine. We just engineered and VALIDATED a highly optimized prompt.
-          Extract the core architectural patterns, constraints, and mental models from BOTH the prompt AND its real-world test output.
-          
-          RULES:
-          1. Do not summarize the prompt. Extract REUSABLE prompt engineering techniques and domain-specific build patterns.
-          2. Format entirely in Markdown.
-          3. CRITICAL: Wrap core concepts in double brackets like [[This]] to create Obsidian Wikilinks.
-          4. Suggest a short filename at the top: FILENAME: Prompt_Pattern_Name
-          
-          VALIDATED PROMPT:
-          """
-          ${prompt}
-          """
-
-          REAL TEST OUTPUT (proof it works):
-          """
-          ${simulatedOutput}
-          """`,
-          config: { temperature: 0.4 }
-        });
-
-        let distilled = distillRes.text || "";
-        let filename = "Validated_Pattern_" + Date.now();
-
-        const filenameMatch = distilled.match(/^FILENAME:\s*(.+)/i);
-        if (filenameMatch) {
-          filename = filenameMatch[1].trim();
-          distilled = distilled.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
-        }
-        
-        const safeTitle = filename.replace(/[^a-zA-Z0-9- ]/g, "").replace(/\s+/g, "-").toLowerCase();
-        const timestamp = new Date().toISOString().split("T")[0];
-        const finalFilename = `${timestamp}-${safeTitle}.md`;
-        
-        const brainDir = path.join(process.cwd(), ".brain");
-        await fs.promises.mkdir(brainDir, { recursive: true });
-        const fileContent = distilled + "\n\n---\n**Source:** Post-Validation Learning Loop (Prompt Architect)\n**Test Input:** " + testInput + "\n**Date:** " + new Date().toISOString();
-        await fs.promises.writeFile(path.join(brainDir, finalFilename), fileContent);
-        console.log(`[DISTILL] Saved new brain module locally: ${finalFilename}`);
-
-        // --- GITHUB MEMORY PERSISTENCE ---
-        const githubToken = process.env.GITHUB_TOKEN;
-        if (githubToken) {
-          try {
-            const owner = "Moorejae";
-            const repo = "idea-684";
-            const pathInRepo = `.brain/${finalFilename}`;
-            const url = `https://api.github.com/repos/${owner}/${repo}/contents/${pathInRepo}`;
-            
-            const contentBase64 = Buffer.from(fileContent).toString("base64");
-            
-            const ghRes = await fetch(url, {
-              method: "PUT",
-              headers: {
-                "Authorization": `Bearer ${githubToken}`,
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "Ino-Brain-Distiller"
-              },
-              body: JSON.stringify({
-                message: `brain: Ino learned ${safeTitle}`,
-                content: contentBase64
-              })
-            });
-            
-            if (ghRes.ok) {
-              console.log(`[GITHUB] Successfully committed ${finalFilename} to ${owner}/${repo}`);
-            } else {
-              const errText = await ghRes.text();
-              console.error(`[GITHUB] Failed to commit to GitHub:`, errText);
-            }
-          } catch (ghError) {
-            console.error(`[GITHUB] Error pushing to GitHub:`, ghError);
-          }
-        } else {
-          console.warn("[GITHUB] No GITHUB_TOKEN found. Eyeno's memory was not pushed to GitHub.");
-        }
-
-        const { createObsidianNote } = await import("./github-db.js");
-        console.log("[LEARNING LOOP] Brain trained with validated pattern: " + filename);
-      } catch (loopErr) {
-        console.error("[LEARNING LOOP] Post-validation training failed:", loopErr);
-      }
-    })();
   } catch (err: any) {
     console.error("Simulation API Error:", err);
     res.status(500).json({ error: "Failed to simulate prompt: " + err.message });
-  }
-});
-
-// 4. Audio Transcription Endpoint
-app.post("/api/transcribe", async (req, res) => {
-  if (!checkApiKey(res)) return;
-
-  const { audioBase64 } = req.body;
-  if (!audioBase64) {
-    res.status(400).json({ error: "No audio data provided." });
-    return;
-  }
-
-  try {
-    // Strip the data URL prefix if it exists (e.g., "data:audio/webm;base64,...")
-    const base64Data = audioBase64.replace(/^data:audio\/\w+;base64,/, "");
-
-    const response = await generateContentWithRotation({
-      model: "gemini-1.5-pro",
-      contents: [
-        { text: "Transcribe the following audio accurately. Reply ONLY with the transcribed text. Do not add any introductory or concluding remarks. If it's completely silent or unintelligible, just reply with '[Inaudible]'" },
-        { inlineData: { mimeType: "audio/webm", data: base64Data } }
-      ]
-    });
-
-    const transcription = response.text || "";
-    res.json({ transcription: transcription.trim() });
-  } catch (err: any) {
-    console.error("Transcription API Error:", err);
-    res.status(500).json({ error: "Failed to transcribe audio: " + err.message });
-  }
-});
-
-// 5. Second Brain Endpoints (Obsidian Graph DB)
-import { createObsidianNote, getAllObsidianNotes } from "./github-db.js";
-
-// A. Query the Obsidian Brain
-app.get("/api/brain-query", async (req, res) => {
-  if (!checkApiKey(res)) return;
-  const query = (req.query.query as string) || "";
-  try {
-    const memoryBank = await getAllObsidianNotes();
-    
-    if (!memoryBank || memoryBank.length === 0) {
-      return res.json({ idea: "No memory found in the Obsidian vault. Feed the brain first!" });
-    }
-
-    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-    let bestMemory = null;
-    let highestScore = -1;
-
-    for (const mem of memoryBank) {
-      const contentLower = (mem.content || "").toLowerCase();
-      let score = 0;
-      for (const word of queryWords) {
-        if (contentLower.includes(word)) score++;
-      }
-      if (score > highestScore) {
-        highestScore = score;
-        bestMemory = mem;
-      }
-    }
-
-    if (highestScore > 0 && bestMemory) {
-      return res.json({ idea: `Extracted Idea from [${bestMemory.name}]:\n\n${bestMemory.content}` });
-    }
-    
-    return res.json({ idea: "No strongly related ideas found in the brain." });
-  } catch (error) {
-    console.error("Brain Query Error:", error);
-    return res.json({ idea: "No strongly related ideas found in the brain due to an error." });
-  }
-});
-
-// B. Ingest Raw Data into Obsidian Brain
-app.post("/api/brain-ingest", async (req, res) => {
-  if (!checkApiKey(res)) return;
-  
-  const { rawData, source } = req.body;
-  if (!rawData) {
-    res.status(400).json({ error: "rawData is required to feed the brain." });
-    return;
-  }
-
-  try {
-    // 1. Distill raw data using Gemini into Obsidian Markdown
-    const response = await generateContentWithRotation({
-      model: "gemini-1.5-pro",
-      contents: `You are the AI Brain's Distillation Engine. Extract the fundamental facts, core principles, and useful knowledge from the raw text.
-
-      RULES:
-      1. Do not summarize or add hallucinations. Just extract the clean, usable data.
-      2. Format the output entirely in Markdown.
-      3. CRITICAL: Whenever you mention a core concept, entity, or recurring theme, wrap it in double brackets like [[This]] to create an Obsidian Wikilink. This is how the brain connects dots.
-      4. Suggest a short, safe filename for this note at the very top of your response in this exact format:
-         FILENAME: Concept_Name
-      
-      RAW DATA:
-      """
-      ${rawData}
-      """`,
-      config: {
-        temperature: 0.3,
-      }
-    });
-
-    let distilledContent = response.text || "";
-    let filename = "";
-
-    // Extract the suggested filename if provided
-    const filenameMatch = distilledContent.match(/^FILENAME:\s*(.+)/i);
-    if (filenameMatch) {
-      filename = filenameMatch[1].trim();
-      // Remove the filename line from the actual content
-      distilledContent = distilledContent.replace(/^FILENAME:\s*(.+)\n*/i, "").trim();
-    }
-
-    // Append source meta-data
-    distilledContent += `\n\n---\n**Source:** ${source || "Manual Feed"}\n**Date:** ${new Date().toISOString()}`;
-
-    // 2. Save distilled dots to Obsidian GitHub Repo
-    await createObsidianNote(distilledContent, filename);
-
-    res.json({ success: true, message: "Raw data distilled and committed to the Obsidian Vault!" });
-  } catch (err: any) {
-    console.error("Brain Ingest Error:", err);
-    res.status(500).json({ error: "Failed to ingest data: " + err.message });
   }
 });
 
@@ -682,4 +325,3 @@ async function startServer() {
 }
 
 startServer();
-

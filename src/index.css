@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -7,12 +7,71 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+:root {
+  color-scheme: dark;
+}
+
 body {
-  background-color: #0A0A0C;
+  background-color: #060709;
   color: #E2E8F0;
   font-family: var(--font-sans);
+  background-image: 
+    radial-gradient(ellipse at 50% 0%, rgba(226, 232, 240, 0.05) 0%, transparent 65%),
+    radial-gradient(ellipse at 85% 30%, rgba(148, 163, 184, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 15% 70%, rgba(226, 232, 240, 0.02) 0%, transparent 50%);
+  background-attachment: fixed;
 }
 
 .font-display {
   font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Neon Silver Glows & Metallic Shimmer */
+.neon-silver-glow {
+  box-shadow: 0 0 25px rgba(226, 232, 240, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.neon-silver-glow-strong {
+  box-shadow: 0 0 30px rgba(241, 245, 249, 0.25), 0 0 10px rgba(226, 232, 240, 0.4);
+}
+
+.neon-silver-border {
+  border-color: rgba(226, 232, 240, 0.18);
+}
+
+.neon-silver-border-hover:hover {
+  border-color: rgba(248, 250, 252, 0.4);
+  box-shadow: 0 0 20px rgba(226, 232, 240, 0.08);
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090B0E;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #272A30;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #474D58;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

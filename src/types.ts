@@ -28,19 +28,6 @@ export interface AnalysisResult {
   gaps: string[];
 }
 
-export interface GuidebookSection {
-  id: string;
-  title: string;
-  provider: 'google' | 'anthropic' | 'openai' | 'universal';
-  description: string;
-  keyPrinciples: {
-    title: string;
-    description: string;
-    example: string;
-  }[];
-  proTip: string;
-}
-
 export interface SavedPrompt {
   id: string;
   title: string;
@@ -48,4 +35,16 @@ export interface SavedPrompt {
   refined: string;
   style: string;
   createdAt: string;
+  tags?: string[];
+}
+
+export interface StarterTemplate {
+  id: string;
+  title: string;
+  category: 'Coding & Architecture' | 'Agents & Logic' | 'Analytics & Data' | 'Creative & Copy' | 'Operations & Support';
+  description: string;
+  level: 'Beginner Draft' | 'Intermediate' | 'Complex Task';
+  roughPrompt: string;
+  architecturalFlaws: string[];
+  engineeredHighlights: string[];
 }
