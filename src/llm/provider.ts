@@ -241,33 +241,57 @@ async function geminiNativeJson(key: string, model: string, opts: GenerateOption
   return text.trim();
 }
 
+/** True for transient failures worth a retry: rate limits (429), server
+ *  overload (5xx — e.g. Gemini "high demand" 503s) and network-level errors. */
+function isTransientError(err: any): boolean {
+  const msg = err?.message || "";
+  return (
+    /HTTP (429|5\d\d)/.test(msg) ||
+    /ETIMEDOUT|ECONNRESET|EAI_AGAIN|fetch failed|socket hang up/i.test(msg)
+  );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function tryGemini(opts: GenerateOptions): Promise<ProviderResult | null> {
   const keys = getGeminiKeys();
   if (!keys.length) {
     console.warn("[PROVIDER] No GEMINI_API_KEY_POOL — skipping Gemini tier");
     return null;
   }
-  // Round-robin keys, and for each key walk the model list (best quality first).
+  // Round-robin keys, and for each key walk the model list (fast models first).
+  const RETRIES = 1; // one extra attempt per model when the failure is transient
+  const RETRY_DELAY_MS = 2000;
   for (let ki = 0; ki < keys.length; ki++) {
     const key = keys[ki];
     for (const model of GEMINI_MODELS) {
-      try {
-        console.log(`[PROVIDER] Trying Gemini key ${ki + 1}/${keys.length} · ${model}...`);
-        // JSON requests use the NATIVE structured-output endpoint (clean JSON);
-        // plain chat requests keep the OpenAI-compatible path.
-        const text = opts.json
-          ? await geminiNativeJson(key, model, opts)
-          : await chatCompletion(
-              GEMINI_COMPAT_URL,
-              { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-              model,
-              opts
-            );
-        console.log(`[PROVIDER] ✅ Gemini (${model}) on key ${ki + 1} succeeded`);
-        return { text, provider: "gemini", model };
-      } catch (err: any) {
-        // 401/403/400 = key or model unusable — move to next model/key.
-        console.warn(`[PROVIDER] Gemini ${model} key ${ki + 1} failed: ${err?.message?.substring(0, 150)}`);
+      for (let attempt = 1; attempt <= RETRIES + 1; attempt++) {
+        try {
+          console.log(`[PROVIDER] Trying Gemini key ${ki + 1}/${keys.length} · ${model}${attempt > 1 ? ` (retry ${attempt - 1})` : ""}...`);
+          // JSON requests use the NATIVE structured-output endpoint (clean JSON);
+          // plain chat requests keep the OpenAI-compatible path.
+          const text = opts.json
+            ? await geminiNativeJson(key, model, opts)
+            : await chatCompletion(
+                GEMINI_COMPAT_URL,
+                { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+                model,
+                opts
+              );
+          console.log(`[PROVIDER] ✅ Gemini (${model}) on key ${ki + 1} succeeded`);
+          return { text, provider: "gemini", model };
+        } catch (err: any) {
+          // 429/5xx/network errors are transient (Google "high demand" spikes) —
+          // retry the same model once before giving up and moving to the next.
+          if (isTransientError(err) && attempt <= RETRIES) {
+            console.warn(`[PROVIDER] Gemini ${model} key ${ki + 1} transient failure (${err?.message?.substring(0, 120)}) — retrying in ${RETRY_DELAY_MS / 1000}s...`);
+            await sleep(RETRY_DELAY_MS);
+            continue;
+          }
+          // 401/403/400 = key or model unusable — move to next model/key.
+          console.warn(`[PROVIDER] Gemini ${model} key ${ki + 1} failed: ${err?.message?.substring(0, 150)}`);
+          break;
+        }
       }
     }
   }
