@@ -11,6 +11,16 @@ export function extractJson(text: string): any {
   // 1) Strip code fences (```json ... ``` or ``` ... ```)
   let cleaned = t.replace(/```(?:json)?/gi, "").trim();
 
+  // 1b) Strip reasoning/thinking blocks. Gemma/Gemini "thinking" models wrap
+  // their output in <thought>…</thought> / <thinking>…</thinking> tags. The
+  // text inside can contain stray braces that would break the brace-matching
+  // below (the first "{" then lands inside the thinking block → "Unbalanced
+  // JSON" / "Expected property name or '}'"). Drop the whole block first.
+  cleaned = cleaned
+    .replace(/<(?:thought|thinking|reasoning)[^>]*>[\s\S]*?<\/(?:thought|thinking|reasoning)>/gi, "")
+    .replace(/\[(?:thought|thinking|reasoning)\][\s\S]*?\[\/(?:thought|thinking|reasoning)\]/gi, "")
+    .trim();
+
   // 2) Find the outermost { ... } (or [ ... ]) region if surrounding noise exists
   const firstBrace = cleaned.indexOf("{");
   const firstBracket = cleaned.indexOf("[");
