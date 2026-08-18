@@ -69,13 +69,17 @@ export function hasLLMBackend(): boolean {
 // When a model hits its rate limit, we fall through to the next one, then to
 // the next key, then to the Qwen 2.5 7B fallback. Order matches the requested
 // waterfall: gemma 4 31b → gemma 4 26b → gemini 3.5 → 3.7 → 3.6 flash → 3.1 flash lite.
+//
+// NOTE: model IDs are the exact Gemini API ids (verified against
+// /v1beta/models). The gemma ids carry suffixes (-it / -a4b-it) — the bare
+// "gemma-4-31b" / "gemma-4-26b" ids do NOT exist and 404.
 const GEMINI_MODELS = [
-  "gemma-4-31b",              // gemma 4 31b
-  "gemma-4-26b",              // gemma 4 26b
-  "gemini-3.5-flash",         // gemini 3.5
-  "gemini-3.7-flash",         // 3.7
-  "gemini-3.6-flash",         // 3.6 flash
-  "gemini-3.1-flash-lite",    // 3.1 flash lite — workhorse (huge quota)
+  "gemma-4-31b-it",            // gemma 4 31b
+  "gemma-4-26b-a4b-it",        // gemma 4 26b
+  "gemini-3.5-flash",          // gemini 3.5
+  "gemini-3.7-flash",          // 3.7
+  "gemini-3.6-flash",          // 3.6 flash
+  "gemini-3.1-flash-lite",     // 3.1 flash lite — workhorse (huge quota)
 ];
 
 const GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
