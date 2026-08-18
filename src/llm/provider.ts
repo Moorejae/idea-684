@@ -192,12 +192,24 @@ async function tryQwenSpace(opts: GenerateOptions): Promise<ProviderResult | nul
  * responseMimeType:"application/json" makes the API return clean JSON directly.
  */
 async function geminiNativeJson(key: string, model: string, opts: GenerateOptions): Promise<string> {
+  // Thinking gemma models spend output tokens on reasoning BEFORE emitting the
+  // JSON, and the app's JSON payloads can exceed ~2.5k tokens (e.g. 5 clarifying
+  // questions). A small maxOutputTokens truncates the JSON (finishReason
+  // MAX_TOKENS) → "Unbalanced JSON in model output". Give the gemma thinking
+  // models a large budget (the model still stops at the end of the JSON);
+  // non-gemma models get a generous floor too.
+  const isThinkingGemma = model.startsWith("gemma-");
+  const maxOutputTokens = Math.max(
+    opts.maxTokens ?? 1200,
+    isThinkingGemma ? 8192 : 4096
+  );
+
   const body: any = {
     contents: [{ role: "user", parts: [{ text: opts.user }] }],
     generationConfig: {
       responseMimeType: "application/json",
       temperature: opts.temperature ?? 0.7,
-      maxOutputTokens: opts.maxTokens ?? 1200,
+      maxOutputTokens,
     },
   };
   if (opts.system) body.systemInstruction = { parts: [{ text: opts.system }] };
