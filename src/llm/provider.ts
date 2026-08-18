@@ -65,21 +65,25 @@ export function hasLLMBackend(): boolean {
   return Boolean(getGeminiKeys().length) || Boolean(getHFToken()) || Boolean(env("LLM_ENDPOINT"));
 }
 
-// ── Gemini model waterfall (ordered per user spec) ──────────────────────────
+// ── Gemini model waterfall (fast models first) ──────────────────────────────
 // When a model hits its rate limit, we fall through to the next one, then to
-// the next key, then to the Qwen 2.5 7B fallback. Order matches the requested
-// waterfall: gemma 4 31b → gemma 4 26b → gemini 3.5 → 3.7 → 3.6 flash → 3.1 flash lite.
+// the next key, then to the Qwen 2.5 7B fallback.
+//
+// The gemini flash models are fast and reliable, so they go FIRST. The gemma
+// models are "thinking" models — much slower (30-50s/call, they reason before
+// answering) and prone to 503 high-demand spikes — so they're pushed to the
+// back and only used when the flash models are all unavailable.
 //
 // NOTE: model IDs are the exact Gemini API ids (verified against
 // /v1beta/models). The gemma ids carry suffixes (-it / -a4b-it) — the bare
 // "gemma-4-31b" / "gemma-4-26b" ids do NOT exist and 404.
 const GEMINI_MODELS = [
-  "gemma-4-31b-it",            // gemma 4 31b
-  "gemma-4-26b-a4b-it",        // gemma 4 26b
-  "gemini-3.5-flash",          // gemini 3.5
+  "gemini-3.5-flash",          // gemini 3.5 — fast & capable (primary)
   "gemini-3.7-flash",          // 3.7
   "gemini-3.6-flash",          // 3.6 flash
-  "gemini-3.1-flash-lite",     // 3.1 flash lite — workhorse (huge quota)
+  "gemini-3.1-flash-lite",     // 3.1 flash lite — fastest, huge quota (workhorse)
+  "gemma-4-31b-it",            // gemma 4 31b — thinking/slow, last resort
+  "gemma-4-26b-a4b-it",        // gemma 4 26b — thinking/slow, last resort
 ];
 
 const GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
