@@ -83,6 +83,7 @@ const GEMINI_MODELS = [
 ];
 
 const GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_REST_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // ── shared OpenAI-compatible call ────────────────────────────────────────────
 async function chatCompletion(
@@ -183,6 +184,47 @@ async function tryQwenSpace(opts: GenerateOptions): Promise<ProviderResult | nul
 }
 
 // ── Tier 1: Gemini (key pool × model rotation) ───────────────────────────────
+/**
+ * Native Gemini structured-JSON call (REST generateContent). The thinking
+ * models (gemma-4-31b-it etc.) wrap prompt-JSON output in <thought>…</thought>
+ * blocks and prefix stray text, which the OpenAI-compat json_object mode does
+ * NOT cleanly suppress. Using the native generateContent endpoint with
+ * responseMimeType:"application/json" makes the API return clean JSON directly.
+ */
+async function geminiNativeJson(key: string, model: string, opts: GenerateOptions): Promise<string> {
+  const body: any = {
+    contents: [{ role: "user", parts: [{ text: opts.user }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: opts.temperature ?? 0.7,
+      maxOutputTokens: opts.maxTokens ?? 1200,
+    },
+  };
+  if (opts.system) body.systemInstruction = { parts: [{ text: opts.system }] };
+
+  const res = await fetch(`${GEMINI_REST_URL}/${model}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 300000),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`${model} HTTP ${res.status}: ${errText.substring(0, 240)}`);
+  }
+  const data = await res.json();
+  // Thinking models (gemma-4-31b-it etc.) put their reasoning in parts flagged
+  // `thought: true`; the actual JSON lives in the final non-thought part(s).
+  // Drop the thought parts so we only return the clean JSON.
+  const text = (data?.candidates?.[0]?.content?.parts || [])
+    .filter((p: any) => !p.thought)
+    .map((p: any) => p.text || "")
+    .join("");
+  if (!text) throw new Error(`${model} returned empty content`);
+  return text.trim();
+}
+
 async function tryGemini(opts: GenerateOptions): Promise<ProviderResult | null> {
   const keys = getGeminiKeys();
   if (!keys.length) {
@@ -195,12 +237,16 @@ async function tryGemini(opts: GenerateOptions): Promise<ProviderResult | null> 
     for (const model of GEMINI_MODELS) {
       try {
         console.log(`[PROVIDER] Trying Gemini key ${ki + 1}/${keys.length} · ${model}...`);
-        const text = await chatCompletion(
-          GEMINI_COMPAT_URL,
-          { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-          model,
-          opts
-        );
+        // JSON requests use the NATIVE structured-output endpoint (clean JSON);
+        // plain chat requests keep the OpenAI-compatible path.
+        const text = opts.json
+          ? await geminiNativeJson(key, model, opts)
+          : await chatCompletion(
+              GEMINI_COMPAT_URL,
+              { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+              model,
+              opts
+            );
         console.log(`[PROVIDER] ✅ Gemini (${model}) on key ${ki + 1} succeeded`);
         return { text, provider: "gemini", model };
       } catch (err: any) {
