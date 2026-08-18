@@ -3,13 +3,16 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Myzelva LLM Provider — Qwen via Hugging Face, no Gemini keys.
+// Myzelva LLM Provider — Gemini (primary, max quality) with Qwen 2.5 7B fallback.
 //
 // Waterfall (first success wins):
-//   Tier 1: Self-hosted Qwen Space  (LLM_ENDPOINT, OpenAI-compatible /v1)
-//   Tier 2: HF Router              (router.huggingface.co, strong open models)
+//   Tier 1: Gemini key → model waterfall (GEMINI_API_KEY / GEMINI_API_KEY_POOL).
+//           Walks GEMINI_MODELS in order; when one hits a rate limit it falls
+//           through to the next model, then to the next key, then to Qwen.
+//   Tier 2: Qwen 2.5 7B fallback (LLM_ENDPOINT, self-hosted, OpenAI-compatible /v1)
+//   Tier 3: HF Router              (router.huggingface.co, strong open models)
 //
-// Both speak the OpenAI chat-completions wire format, so one client fits all.
+// All tiers speak the OpenAI chat-completions wire format, so one client fits.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface GenerateOptions {
@@ -17,9 +20,8 @@ export interface GenerateOptions {
   user: string;
   temperature?: number;
   maxTokens?: number;
-  /** Ask for pure JSON output (prompt-based JSON mode, since Qwen has no
-   *  native responseSchema like Gemini). The raw text is still returned;
-   *  callers use extractJson() to parse. */
+  /** Ask for pure JSON output (prompt-based JSON mode). The raw text is still
+   *  returned; callers use extractJson() to parse. */
   json?: boolean;
   /** Optional timeout (ms) per tier. Default 300000 — the free self-hosted
    *  Qwen Space can cold-start for several minutes. */
@@ -28,7 +30,7 @@ export interface GenerateOptions {
 
 export interface ProviderResult {
   text: string;
-  provider: "qwen-space" | "hf-router" | "none";
+  provider: "gemini" | "qwen-space" | "hf-router" | "none";
   model: string;
 }
 
@@ -49,21 +51,34 @@ export function getHFToken(): string {
   return env("HF_TOKEN", env("HF_ACCESS_TOKEN", ""));
 }
 
-/** True when any LLM backend is configured (used by checkApiKey()). */
-export function hasLLMBackend(): boolean {
-  return Boolean(getHFToken()) || Boolean(env("LLM_ENDPOINT"));
+export function getGeminiKeys(): string[] {
+  const pool = env("GEMINI_API_KEY_POOL", env("GEMINI_API_KEY", ""));
+  return pool
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+    .filter((k) => !/^0x[0-9a-f]+$/i.test(k)); // drop crypto-wallet addresses accidentally pasted into the pool
 }
 
-const HF_ROUTER = "https://router.huggingface.co/v1/chat/completions";
+/** True when any LLM backend is configured (used by checkApiKey()). */
+export function hasLLMBackend(): boolean {
+  return Boolean(getGeminiKeys().length) || Boolean(getHFToken()) || Boolean(env("LLM_ENDPOINT"));
+}
 
-// Stronger open models first — the HF router serves them fast and at high quality.
-const HF_ROUTER_MODELS = [
-  "Qwen/Qwen3-32B",
-  "Qwen/Qwen2.5-72B-Instruct",
-  "Qwen/Qwen2.5-Coder-32B-Instruct",
-  "google/gemma-4-26B-A4B-it",
-  "meta-llama/Llama-3.3-70B-Instruct",
+// ── Gemini model waterfall (ordered per user spec) ──────────────────────────
+// When a model hits its rate limit, we fall through to the next one, then to
+// the next key, then to the Qwen 2.5 7B fallback. Order matches the requested
+// waterfall: gemma 4 31b → gemma 4 26b → gemini 3.5 → 3.7 → 3.6 flash → 3.1 flash lite.
+const GEMINI_MODELS = [
+  "gemma-4-31b",              // gemma 4 31b
+  "gemma-4-26b",              // gemma 4 26b
+  "gemini-3.5-flash",         // gemini 3.5
+  "gemini-3.7-flash",         // 3.7
+  "gemini-3.6-flash",         // 3.6 flash
+  "gemini-3.1-flash-lite",    // 3.1 flash lite — workhorse (huge quota)
 ];
+
+const GEMINI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 // ── shared OpenAI-compatible call ────────────────────────────────────────────
 async function chatCompletion(
@@ -144,9 +159,9 @@ async function tryQwenSpace(opts: GenerateOptions): Promise<ProviderResult | nul
     opts
   );
   try {
-    console.log("[PROVIDER] Trying self-hosted Qwen Space...");
+    console.log("[PROVIDER] Trying Qwen 2.5 7B fallback (self-hosted Space)...");
     const text = await attempt();
-    console.log(`[PROVIDER] ✅ Qwen Space (${model}) succeeded`);
+    console.log(`[PROVIDER] ✅ Qwen 2.5 7B fallback (${model}) succeeded`);
     return { text, provider: "qwen-space", model };
   } catch (err: any) {
     // Cold-start retry: the Space may be asleep/loading; wake it and try once more.
@@ -162,6 +177,48 @@ async function tryQwenSpace(opts: GenerateOptions): Promise<ProviderResult | nul
     }
   }
 }
+
+// ── Tier 1: Gemini (key pool × model rotation) ───────────────────────────────
+async function tryGemini(opts: GenerateOptions): Promise<ProviderResult | null> {
+  const keys = getGeminiKeys();
+  if (!keys.length) {
+    console.warn("[PROVIDER] No GEMINI_API_KEY_POOL — skipping Gemini tier");
+    return null;
+  }
+  // Round-robin keys, and for each key walk the model list (best quality first).
+  for (let ki = 0; ki < keys.length; ki++) {
+    const key = keys[ki];
+    for (const model of GEMINI_MODELS) {
+      try {
+        console.log(`[PROVIDER] Trying Gemini key ${ki + 1}/${keys.length} · ${model}...`);
+        const text = await chatCompletion(
+          GEMINI_COMPAT_URL,
+          { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          model,
+          opts
+        );
+        console.log(`[PROVIDER] ✅ Gemini (${model}) on key ${ki + 1} succeeded`);
+        return { text, provider: "gemini", model };
+      } catch (err: any) {
+        // 401/403/400 = key or model unusable — move to next model/key.
+        console.warn(`[PROVIDER] Gemini ${model} key ${ki + 1} failed: ${err?.message?.substring(0, 150)}`);
+      }
+    }
+  }
+  console.warn("[PROVIDER] All Gemini keys/models exhausted — moving to fallbacks");
+  return null;
+}
+
+const HF_ROUTER = "https://router.huggingface.co/v1/chat/completions";
+
+// Stronger open models first — the HF router serves them fast and at high quality.
+const HF_ROUTER_MODELS = [
+  "Qwen/Qwen3-32B",
+  "Qwen/Qwen2.5-72B-Instruct",
+  "Qwen/Qwen2.5-Coder-32B-Instruct",
+  "google/gemma-4-26B-A4B-it",
+  "meta-llama/Llama-3.3-70B-Instruct",
+];
 
 // ── Tier 2: HF router ────────────────────────────────────────────────────────
 async function tryHFRouter(opts: GenerateOptions): Promise<ProviderResult | null> {
@@ -191,11 +248,14 @@ async function tryHFRouter(opts: GenerateOptions): Promise<ProviderResult | null
 // ── main entry ───────────────────────────────────────────────────────────────
 /** Run the full waterfall. Returns provider "none" if nothing is configured. */
 export async function generate(opts: GenerateOptions): Promise<ProviderResult> {
-  const tier1 = await tryQwenSpace(opts);
+  const tier1 = await tryGemini(opts);
   if (tier1) return tier1;
 
-  const tier2 = await tryHFRouter(opts);
+  const tier2 = await tryQwenSpace(opts);
   if (tier2) return tier2;
+
+  const tier3 = await tryHFRouter(opts);
+  if (tier3) return tier3;
 
   return { text: "", provider: "none", model: "" };
 }
@@ -205,7 +265,7 @@ export async function generateOrThrow(opts: GenerateOptions): Promise<ProviderRe
   const result = await generate(opts);
   if (result.provider === "none") {
     throw new Error(
-      "No LLM backend available. Configure LLM_ENDPOINT or HF_TOKEN in the environment."
+      "No LLM backend available. Configure GEMINI_API_KEY_POOL, LLM_ENDPOINT or HF_TOKEN in the environment."
     );
   }
   return result;
